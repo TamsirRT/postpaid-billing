@@ -1,0 +1,33 @@
+{% extends "base.html" %}
+{% block title %}Missing contacts{% endblock %}
+{% block content %}
+<h1>Owe money, no email on file</h1>
+<p>{{ rows|length }} child{{ '' if rows|length == 1 else 'ren' }} can't be emailed about a balance. Statements skip them, so nothing breaks, but nobody is asking for the money either.</p>
+<p>
+  <a class="button" href="{{ url_for('main.missing_contacts_csv') }}">Download list for the school (CSV)</a>
+</p>
+{% if role_at_least(g.staff.role, 'admin') %}
+<form method="post" action="{{ url_for('main.import_roster') }}" class="inline-block">
+  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+  <button class="secondary" type="submit">Import contacts from school roster</button>
+  <span class="muted">Copies valid emails and phones from the students table. Placeholders like “redacted” are skipped. Safe to run again.</span>
+</form>
+{% endif %}
+<div class="table-wrap"><table>
+  <thead><tr><th scope="col">Name</th><th scope="col">Grade</th><th scope="col">Homeroom</th><th scope="col" class="amount">Balance due</th><th scope="col">Oldest unpaid</th><th scope="col">Problem</th></tr></thead>
+  <tbody>
+  {% for r in rows %}
+    <tr>
+      <td>{% if r.id %}<a href="{{ url_for('main.student_detail', student_id=r.id) }}">{{ r.last_name }}, {{ r.first_name }}</a>{% else %}<span class="warn">Student no longer in roster</span>{% endif %}</td>
+      <td>{{ r.grade_level }}</td>
+      <td>{{ r.home_room }}</td>
+      <td class="amount">{{ r.balance_due_cents|dollars }}</td>
+      <td>{{ r.oldest_unpaid_date|when }}</td>
+      <td>{{ labels.get(r.reason, r.reason) }}</td>
+    </tr>
+  {% else %}
+    <tr><td colspan="6" class="muted">Every child who owes money has an email on file.</td></tr>
+  {% endfor %}
+  </tbody>
+</table></div>
+{% endblock %}

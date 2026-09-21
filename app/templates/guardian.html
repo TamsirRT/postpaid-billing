@@ -1,0 +1,24 @@
+{% extends "base.html" %}
+{% block title %}Contact{% endblock %}
+{% block content %}
+<p><a href="{{ back or url_for('main.students') }}">← Back</a></p>
+<h1>{{ gd.name or gd.email or gd.phone }}</h1>
+<p class="muted">Linked to:
+  {% for c in children %}<a href="{{ url_for('main.student_detail', student_id=c.id) }}">{{ c.first_name }} {{ c.last_name }}</a>{{ ', ' if not loop.last }}{% else %}no children{% endfor %}.
+  Changes here apply to every linked child.</p>
+
+{% set can_edit = role_at_least(g.staff.role, 'admin') %}
+<section class="card">
+  {% for e in errors %}<p class="flash flash-error" role="alert">{{ e }}</p>{% endfor %}
+  <form method="post" action="{{ url_for('main.guardian_detail', guardian_id=gd.id) }}" class="grid-form">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+    <input type="hidden" name="back" value="{{ back }}">
+    <div><label for="name">Name</label><input id="name" name="name" type="text" value="{{ form.name or '' }}" {{ 'disabled' if not can_edit }}></div>
+    <div><label for="email">Email</label><input id="email" name="email" type="email" value="{{ form.email or '' }}" {{ 'disabled' if not can_edit }}></div>
+    <div><label for="phone">Phone</label><input id="phone" name="phone" type="tel" value="{{ form.phone or '' }}" {{ 'disabled' if not can_edit }}></div>
+    <div><label class="check"><input type="checkbox" name="receives_notices" {% if form.receives_notices in (True, 't', 'true', 'on') %}checked{% endif %} {{ 'disabled' if not can_edit }}> Send statements and receipts to this email</label></div>
+    {% if can_edit %}<div><button class="primary" type="submit">Save</button></div>{% endif %}
+  </form>
+  <p class="muted">Leave email blank if they only have a phone. Their children are then skipped by statements and listed on Missing contacts.</p>
+</section>
+{% endblock %}

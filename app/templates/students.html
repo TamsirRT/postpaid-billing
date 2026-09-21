@@ -1,0 +1,33 @@
+{% extends "base.html" %}
+{% block title %}Students{% endblock %}
+{% block content %}
+<h1>Students</h1>
+<form method="get" action="{{ url_for('main.students') }}" class="filters">
+  <label for="q" class="sr-only">Search by name</label>
+  <input id="q" name="q" type="search" placeholder="Search by name" value="{{ q }}">
+  <label class="check"><input type="checkbox" name="missing" value="1" {% if missing_only %}checked{% endif %}> Only children who owe money with no email on file</label>
+  <button class="primary small" type="submit">Filter</button>
+</form>
+<p class="muted">{{ rows|length }} student{{ '' if rows|length == 1 else 's' }}{% if rows|length >= 1000 %} (showing the first 1,000; narrow the search){% endif %}</p>
+<div class="table-wrap"><table>
+  <thead><tr><th scope="col">Name</th><th scope="col">Grade</th><th scope="col">Homeroom</th><th scope="col" class="amount">Balance due</th><th scope="col">Contact</th></tr></thead>
+  <tbody>
+  {% for r in rows %}
+    {% set owes = r.balance_due_cents|int > 0 %}
+    <tr>
+      <td><a href="{{ url_for('main.student_detail', student_id=r.id) }}">{{ r.last_name }}, {{ r.first_name }}</a></td>
+      <td>{{ r.grade_level }}</td>
+      <td>{{ r.home_room }}</td>
+      <td class="amount">{{ r.balance_due_cents|dollars }}</td>
+      <td>
+        {% if r.reachable_count|int > 0 %}Email on file
+        {% elif r.guardian_count|int > 0 %}<span class="warn">No email</span>
+        {% else %}<span class="{{ 'warn' if owes else 'muted' }}">None</span>{% endif %}
+      </td>
+    </tr>
+  {% else %}
+    <tr><td colspan="5" class="muted">No students match.</td></tr>
+  {% endfor %}
+  </tbody>
+</table></div>
+{% endblock %}

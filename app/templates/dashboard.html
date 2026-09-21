@@ -1,0 +1,31 @@
+{% extends "base.html" %}
+{% block title %}Dashboard{% endblock %}
+{% block content %}
+{% if not institution %}
+<section class="card">
+  <h1>No institution configured</h1>
+  <p>This app is set to <code>{{ config.INSTITUTION_SLUG }}</code>, which doesn't exist in the database yet.
+     Run <code>flask --app wsgi institution create</code> (see README).</p>
+</section>
+{% else %}
+<h1>{{ institution.name }}</h1>
+<div class="stats">
+  <div class="stat"><span class="num">{{ stats.outstanding_cents|dollars }}</span><span class="label">Total outstanding</span></div>
+  <div class="stat"><span class="num">{{ stats.students_owing }}</span><span class="label">Students owing</span></div>
+  <div class="stat"><span class="num">{{ stats.oldest_unpaid_date|when }}</span><span class="label">Oldest unpaid lunch</span></div>
+  <div class="stat"><span class="num">{{ stats.open_review_items }}</span><span class="label">Open review items</span></div>
+  <a class="stat" href="{{ url_for('main.missing_contacts') }}"><span class="num">{{ stats.billed_without_contact }}</span><span class="label">Owe money, no email on file</span></a>
+</div>
+<section class="card">
+  <h2>Pipeline</h2>
+  <dl class="facts">
+    <dt>Billing starts</dt><dd>{% if billing_start %}{{ billing_start|when }}{% else %}<span class="warn">No start date in app/billing_rules.py for this school. Nothing will be billed.</span>{% endif %}</dd>
+    <dt>Orders known through</dt><dd>{{ stats.orders_known_through|when if stats.orders_known_through else 'No orders imported yet' }}</dd>
+    <dt>Last classification run</dt><dd>{{ stats.last_run_at|when if stats.last_run_at else 'Never' }}</dd>
+    <dt>Current billing cycle</dt><dd>{{ stats.current_cycle_status or 'None yet' }}</dd>
+    <dt>Automatic statement sending</dt><dd>{{ 'On' if institution.auto_send_enabled else 'Off' }}</dd>
+  </dl>
+  <p class="muted">Orders import, classification, and statements arrive in phases 1–4.</p>
+</section>
+{% endif %}
+{% endblock %}

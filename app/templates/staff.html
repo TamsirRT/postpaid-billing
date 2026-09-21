@@ -1,0 +1,31 @@
+{% extends "base.html" %}
+{% block title %}Staff{% endblock %}
+{% block content %}
+<h1>Staff access</h1>
+<p class="muted">Everyone who has signed in appears here. People without a role can't see anything.</p>
+<table class="narrow-hide-3">
+  <thead><tr><th scope="col">Email</th><th scope="col">Role</th><th scope="col">Last seen</th><th scope="col"><span class="sr-only">Change</span></th></tr></thead>
+  <tbody>
+  {% for s in staff %}
+    <tr>
+      <td>{{ s.email }}</td>
+      <td>{% if s.role %}{{ s.role|replace('_', ' ') }}{% else %}<strong>No access</strong>{% endif %}</td>
+      <td>{{ s.last_seen_at|when }}</td>
+      <td>
+        {% if s.user_id|string != g.staff.user_id|string %}
+        <form method="post" action="{{ url_for('main.staff_set_role', user_id=s.user_id) }}" class="inline">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+          <label class="sr-only" for="role-{{ loop.index }}">Role for {{ s.email }}</label>
+          <select id="role-{{ loop.index }}" name="role">
+            <option value="" {% if not s.role %}selected{% endif %}>No access</option>
+            {% for r in roles %}<option value="{{ r }}" {% if s.role == r %}selected{% endif %}>{{ r|replace('_', ' ') }}</option>{% endfor %}
+          </select>
+          <button class="primary small">Save</button>
+        </form>
+        {% else %}<span class="muted">You</span>{% endif %}
+      </td>
+    </tr>
+  {% endfor %}
+  </tbody>
+</table>
+{% endblock %}

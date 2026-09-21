@@ -1,0 +1,17 @@
+{% extends "base.html" %}
+{% block title %}Sign in{% endblock %}
+{% block content %}
+<section class="card narrow">
+  <h1>Staff sign-in</h1>
+  <form method="post" action="{{ url_for('main.login') }}">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+    <input type="hidden" name="next" value="{{ next }}">
+    <label for="email">Email</label>
+    <input id="email" name="email" type="email" autocomplete="username" required value="{{ email or '' }}">
+    <label for="password">Password</label>
+    <input id="password" name="password" type="password" autocomplete="current-password" required>
+    <button class="primary" type="submit">Sign in</button>
+  </form>
+  <p class="muted">New staff member? <a href="{{ url_for('main.signup') }}">Create an account</a>, then ask a super admin for access.</p>
+</section>
+{% endblock %}

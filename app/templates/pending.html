@@ -1,0 +1,9 @@
+{% extends "base.html" %}
+{% block title %}Waiting for access{% endblock %}
+{% block content %}
+<section class="card narrow">
+  <h1>Waiting for access</h1>
+  <p>You're signed in as <strong>{{ g.staff.email }}</strong>, but no role has been granted yet.</p>
+  <p>Ask a MealMode super admin to open <em>Staff</em> and give you viewer, admin, or super admin access. Then reload this page.</p>
+</section>
+{% endblock %}

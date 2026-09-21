@@ -1,0 +1,63 @@
+{% extends "base.html" %}
+{% block title %}{{ s.first_name }} {{ s.last_name }}{% endblock %}
+{% block content %}
+<p><a href="{{ url_for('main.students') }}">← Students</a></p>
+<h1>{{ s.first_name }} {{ s.last_name }}</h1>
+<p class="muted">Grade {{ s.grade_level or '—' }} · {{ s.home_room or 'No homeroom' }}</p>
+
+<div class="stats">
+  <div class="stat"><span class="num">{{ s.balance_due_cents|dollars }}</span><span class="label">Balance due</span></div>
+  <div class="stat"><span class="num">{{ s.unpaid_count }}</span><span class="label">Unpaid lunches</span></div>
+  <div class="stat"><span class="num">{{ s.oldest_unpaid_date|when }}</span><span class="label">Oldest unpaid</span></div>
+</div>
+
+<section class="card">
+  <h2>Contacts</h2>
+  {% if not reachable and s.balance_due_cents|int > 0 %}
+  <p class="flash flash-error">This child owes money but no one can be emailed. They're skipped by statements and listed on <a href="{{ url_for('main.missing_contacts') }}">Missing contacts</a>.</p>
+  {% endif %}
+  {% if guardians %}
+  <div class="table-wrap"><table>
+    <thead><tr><th scope="col">Name</th><th scope="col">Email</th><th scope="col">Phone</th><th scope="col">Emails</th><th scope="col"><span class="sr-only">Actions</span></th></tr></thead>
+    <tbody>
+    {% for gd in guardians %}
+      <tr>
+        <td><a href="{{ url_for('main.guardian_detail', guardian_id=gd.id, back=request.path) }}">{{ gd.name or '(no name)' }}</a>{% if gd.source == 'roster' %} <span class="muted">· from roster</span>{% endif %}</td>
+        <td>{{ gd.email or '—' }}</td>
+        <td>{{ gd.phone or '—' }}</td>
+        <td>{% if not gd.email %}<span class="warn">No email</span>{% elif gd.receives_notices in (True, 't', 'true') %}On{% else %}<span class="warn">Opted out</span>{% endif %}</td>
+        <td>
+          {% if role_at_least(g.staff.role, 'admin') %}
+          <form method="post" action="{{ url_for('main.student_unlink_guardian', student_id=s.id, guardian_id=gd.id) }}" class="inline">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <button class="link-dark">Remove from child</button>
+          </form>
+          {% endif %}
+        </td>
+      </tr>
+    {% endfor %}
+    </tbody>
+  </table></div>
+  {% else %}
+  <p class="muted">No contacts linked.</p>
+  {% if s.roster_email or s.roster_phone %}
+  <p class="muted">The school roster has email “{{ s.roster_email or '—' }}” and phone “{{ s.roster_phone or '—' }}”. <em>Import contacts from roster</em> on the Missing contacts page copies them in only if they're valid.</p>
+  {% endif %}
+  {% endif %}
+</section>
+
+{% if role_at_least(g.staff.role, 'admin') %}
+<section class="card">
+  <h2>Add a contact</h2>
+  <p class="muted">If the email already belongs to a contact (a sibling's parent, say), they're linked instead of duplicated.</p>
+  {% for e in errors %}<p class="flash flash-error" role="alert">{{ e }}</p>{% endfor %}
+  <form method="post" action="{{ url_for('main.student_add_guardian', student_id=s.id) }}" class="grid-form">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+    <div><label for="name">Name</label><input id="name" name="name" type="text" value="{{ form.get('name', '') }}"></div>
+    <div><label for="email">Email</label><input id="email" name="email" type="email" value="{{ form.get('email', '') }}"></div>
+    <div><label for="phone">Phone</label><input id="phone" name="phone" type="tel" value="{{ form.get('phone', '') }}"></div>
+    <div><button class="primary" type="submit">Add contact</button></div>
+  </form>
+</section>
+{% endif %}
+{% endblock %}
