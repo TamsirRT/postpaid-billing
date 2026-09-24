@@ -1,0 +1,44 @@
+{% extends "base.html" %}
+{% block title %}Review{% endblock %}
+{% block content %}
+<h1>Review queue</h1>
+<p>Anything the app wouldn't guess about. Until an order name is matched, that child's orders don't count, so their check-ins may be billed as post-paid. Matching fixes that automatically for anything not yet paid.</p>
+{% set can_edit = role_at_least(g.staff.role, 'admin') %}
+{% for it in items %}
+<section class="card review-item">
+  {% if it.source == 'order' %}
+    <h2>{{ it.sample_name or it.raw_reference }}</h2>
+    <p>{{ it.reason }}. {{ it.order_count }} order line(s){% if it.service_date %}, first in the billing period on {{ it.service_date|when }}{% endif %}. Ordering account {{ it.ordering_user_id }}.</p>
+    {% if can_edit %}
+    <form method="post" action="{{ url_for('main.review_match', item_id=it.id) }}" class="grid-form">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+      <div><label for="s-{{ loop.index }}">This child is</label>
+        <select id="s-{{ loop.index }}" name="student_id" required>
+          <option value="">Choose a student…</option>
+          {% for s in students %}<option value="{{ s.id }}">{{ s.last_name }}, {{ s.first_name }} (grade {{ s.grade_level }})</option>{% endfor %}
+        </select></div>
+      <div><button class="primary" type="submit">Match</button></div>
+    </form>
+    {% endif %}
+  {% elif it.source == 'check_in' %}
+    <h2>Check-in for an unknown student</h2>
+    <p>{{ it.reason }}: <code>{{ it.raw_reference }}</code>{% if it.service_date %} on {{ it.service_date|when }}{% endif %}. Fix it in the check-in app, then dismiss this.</p>
+  {% elif it.source == 'late_order' %}
+    <h2>Order arrived after payment</h2>
+    <p>{{ it.reason }} ({{ it.service_date|when }}). Waive the lunch on the student's page if the order is genuine, then dismiss this.</p>
+  {% else %}
+    <h2>{{ it.source }}</h2><p>{{ it.reason }}</p>
+  {% endif %}
+  {% if can_edit %}
+  <form method="post" action="{{ url_for('main.review_dismiss', item_id=it.id) }}" class="inline-block">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+    <label class="sr-only" for="n-{{ loop.index }}">Note</label>
+    <input id="n-{{ loop.index }}" name="note" type="text" placeholder="Why (optional), e.g. staff member, not a student" class="note">
+    <button class="secondary" type="submit">Dismiss</button>
+  </form>
+  {% endif %}
+</section>
+{% else %}
+<p class="muted">Nothing to review.</p>
+{% endfor %}
+{% endblock %}

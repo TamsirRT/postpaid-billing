@@ -72,13 +72,15 @@ $q$, '23514', 'pre-ordered check-in cannot carry a price');
 -- ------------------------------------------------------------ live pricing
 select pg_temp.expect_eq((select price_cents from billing.v_check_in_ledger where check_in_id = 'c0000000-0000-0000-0000-000000000001'), 500, 'promo date priced at promo rate');
 select pg_temp.expect_eq((select rate_label from billing.v_check_in_ledger where check_in_id = 'c0000000-0000-0000-0000-000000000001'), 'Back-to-school promo', 'rate label carried to ledger');
-select pg_temp.expect_eq((select status from billing.v_check_in_ledger where check_in_id = 'c0000000-0000-0000-0000-000000000005'), 'needs_rate', 'uncovered date is needs_rate');
+select pg_temp.expect_eq((select status from billing.v_check_in_ledger where check_in_id = 'c0000000-0000-0000-0000-000000000005'), 'open', 'date outside every rate period is billed');
+select pg_temp.expect_eq((select price_cents from billing.v_check_in_ledger where check_in_id = 'c0000000-0000-0000-0000-000000000005'), 790, 'it gets the school default price ($7.90)');
+select pg_temp.expect_eq((select rate_label from billing.v_check_in_ledger where check_in_id = 'c0000000-0000-0000-0000-000000000005'), 'Standard rate', 'labelled Standard rate');
 select pg_temp.expect_eq((select count(*) from billing.v_check_in_ledger where check_in_id = 'c0000000-0000-0000-0000-000000000004'), 0::bigint, 'pre-ordered check-in not in ledger');
-select pg_temp.expect_eq((select open_cents from billing.v_student_balances where student_id = '00000000-0000-0000-0000-0000000000a1'), 2000::bigint, 'A owes 500 + 750 + 750; needs-rate excluded');
-select pg_temp.expect_eq((select needs_rate_count from billing.v_student_balances where student_id = '00000000-0000-0000-0000-0000000000a1'), 1::bigint, 'A has one needs-rate lunch');
+select pg_temp.expect_eq((select open_cents from billing.v_student_balances where student_id = '00000000-0000-0000-0000-0000000000a1'), 2790::bigint, 'A owes 500 + 750 + 750 + 790 default');
+select pg_temp.expect_eq((select needs_rate_count from billing.v_student_balances where student_id = '00000000-0000-0000-0000-0000000000a1'), 0::bigint, 'default price leaves no unpriced lunches');
 
 update billing.rate_periods set price_cents = 800 where id = '00000000-0000-0000-0000-0000000000b2';
-select pg_temp.expect_eq((select open_cents from billing.v_student_balances where student_id = '00000000-0000-0000-0000-0000000000a1'), 2100::bigint, 'rate edit reprices unpaid lunches immediately');
+select pg_temp.expect_eq((select open_cents from billing.v_student_balances where student_id = '00000000-0000-0000-0000-0000000000a1'), 2890::bigint, 'rate edit reprices unpaid lunches immediately');
 
 -- ------------------------------------------------------------ payments + locks
 insert into billing.payments (id, institution_id, student_id, amount_cents, method, recorded_by)
@@ -101,7 +103,7 @@ insert into billing.payment_allocations (payment_id, check_in_id, amount_cents) 
 
 select pg_temp.expect_eq((select status from billing.v_check_in_ledger where check_in_id = 'c0000000-0000-0000-0000-000000000001'), 'paid', 'fully covered lunch is paid');
 select pg_temp.expect_eq((select status from billing.v_check_in_ledger where check_in_id = 'c0000000-0000-0000-0000-000000000002'), 'partial', 'half-covered lunch is partial');
-select pg_temp.expect_eq((select balance_due_cents from billing.v_student_balances where student_id = '00000000-0000-0000-0000-0000000000a1'), 1100::bigint, 'A owes 300 on the partial + 800 open');
+select pg_temp.expect_eq((select balance_due_cents from billing.v_student_balances where student_id = '00000000-0000-0000-0000-0000000000a1'), 1890::bigint, 'A owes 300 on the partial + 800 + 790 open');
 
 update billing.rate_periods set price_cents = 900 where id = '00000000-0000-0000-0000-0000000000b2';
 select pg_temp.expect_eq((select price_cents from billing.v_check_in_ledger where check_in_id = 'c0000000-0000-0000-0000-000000000002'), 800, 'partially paid lunch keeps its locked price');
@@ -152,9 +154,9 @@ values ('e0000000-0000-0000-0000-000000000002', 'c0000000-0000-0000-0000-0000000
 
 -- A: c1 paid 500/500, c2 paid 800/800, c3 open 900, c5 needs rate
 -- paid in 2000, applied 1300 -> credit 700; open 900; due 200
-select pg_temp.expect_eq((select open_cents from billing.v_student_balances where student_id = '00000000-0000-0000-0000-0000000000a1'), 900::bigint, 'A open after second payment');
+select pg_temp.expect_eq((select open_cents from billing.v_student_balances where student_id = '00000000-0000-0000-0000-0000000000a1'), 1690::bigint, 'A open after second payment');
 select pg_temp.expect_eq((select credit_cents from billing.v_student_balances where student_id = '00000000-0000-0000-0000-0000000000a1'), 700::bigint, 'unapplied money shows as credit');
-select pg_temp.expect_eq((select balance_due_cents from billing.v_student_balances where student_id = '00000000-0000-0000-0000-0000000000a1'), 200::bigint, 'balance due nets credit against open');
+select pg_temp.expect_eq((select balance_due_cents from billing.v_student_balances where student_id = '00000000-0000-0000-0000-0000000000a1'), 990::bigint, 'balance due nets credit against open');
 
 -- ------------------------------------------------------------ append-only
 select pg_temp.expect_error($q$ update billing.payments set amount_cents = 1 where id = 'e0000000-0000-0000-0000-000000000001' $q$, '23001', 'payments cannot be updated');
@@ -169,7 +171,7 @@ update billing.check_in_billing
    set waived_at = now(), waived_by = '00000000-0000-0000-0000-0000000000f1', waive_reason = 'Field trip, lunch provided'
  where check_in_id = 'c0000000-0000-0000-0000-000000000003';
 select pg_temp.expect_eq((select status from billing.v_check_in_ledger where check_in_id = 'c0000000-0000-0000-0000-000000000003'), 'waived', 'waived lunch has waived status');
-select pg_temp.expect_eq((select balance_due_cents from billing.v_student_balances where student_id = '00000000-0000-0000-0000-0000000000a1'), -700::bigint, 'waiving the only open lunch leaves net credit');
+select pg_temp.expect_eq((select balance_due_cents from billing.v_student_balances where student_id = '00000000-0000-0000-0000-0000000000a1'), 90::bigint, 'waiving a lunch removes it from the balance');
 
 select pg_temp.expect_error($q$
     update billing.check_in_billing set waived_at = now() where check_in_id = 'c0000000-0000-0000-0000-000000000001'
@@ -182,7 +184,7 @@ values ('e0000000-0000-0000-0000-000000000001', 'Check bounced', '00000000-0000-
 -- paid in 1000 (P2), applied 300 -> credit 700; open 1000; due 300
 select pg_temp.expect_eq((select status from billing.v_check_in_ledger where check_in_id = 'c0000000-0000-0000-0000-000000000001'), 'open', 'reversal reopens the lunch');
 select pg_temp.expect_eq((select price_cents from billing.v_check_in_ledger where check_in_id = 'c0000000-0000-0000-0000-000000000001'), 500, 'reopened lunch keeps its locked price');
-select pg_temp.expect_eq((select balance_due_cents from billing.v_student_balances where student_id = '00000000-0000-0000-0000-0000000000a1'), 300::bigint, 'balance after reversal');
+select pg_temp.expect_eq((select balance_due_cents from billing.v_student_balances where student_id = '00000000-0000-0000-0000-0000000000a1'), 1090::bigint, 'balance after reversal');
 
 select pg_temp.expect_error($q$
     insert into billing.payment_allocations (payment_id, check_in_id, amount_cents)
@@ -195,7 +197,7 @@ update billing.check_in_billing
  where check_in_id = 'c0000000-0000-0000-0000-000000000002';
 -- open: c1 500. paid in 1000, applied 0 -> credit 1000; due -500
 select pg_temp.expect_eq((select credit_cents from billing.v_student_balances where student_id = '00000000-0000-0000-0000-0000000000a1'), 1000::bigint, 'money on a waived lunch returns as credit');
-select pg_temp.expect_eq((select balance_due_cents from billing.v_student_balances where student_id = '00000000-0000-0000-0000-0000000000a1'), -500::bigint, 'final balance for A');
+select pg_temp.expect_eq((select balance_due_cents from billing.v_student_balances where student_id = '00000000-0000-0000-0000-0000000000a1'), 290::bigint, 'final balance for A');
 select pg_temp.expect_eq((select balance_due_cents from billing.v_student_balances where student_id = '00000000-0000-0000-0000-0000000000a2'), 900::bigint, 'child B unaffected by A''s payments');
 
 -- ------------------------------------------------------------ payment intents

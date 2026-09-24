@@ -4,8 +4,12 @@
   db migrate                apply pending migrations, each in its own transaction
   institution create ...    create the institution row (once per school)
   staff grant EMAIL ROLE    bootstrap: give a role to someone who has signed in once
+  billing classify          match orders and sort new check-ins
+  billing compare-v14 FILE --from D --to D
+                            parallel run against a v1.4 to_invoice CSV
 """
 import hashlib
+import json
 from pathlib import Path
 
 import click
@@ -126,6 +130,48 @@ def register_cli(app):
         result = repo.set_role(staff["user_id"], role, None, "cli")
         click.echo(f"{result['email']} -> {result['role']}")
 
+    billing_group = click.Group("billing", help="Orders, sorting, and checks.")
+
+    def _inst():
+        inst = app.extensions["repo"].get_institution(app.config["INSTITUTION_SLUG"])
+        if not inst:
+            click.echo(f"No institution {app.config['INSTITUTION_SLUG']}", err=True)
+            raise SystemExit(1)
+        return inst
+
+    @billing_group.command("classify")
+    def billing_classify():
+        """Match orders and sort any new check-ins (same as the dashboard button)."""
+        from .classify import ClassificationError, run_classification
+        try:
+            counts = run_classification(app.extensions["repo"], _inst(), None, "cli")
+        except ClassificationError as e:
+            click.echo(str(e), err=True)
+            raise SystemExit(1)
+        click.echo(json.dumps(counts, indent=2, default=str))
+
+    @billing_group.command("compare-v14")
+    @click.argument("to_invoice", type=click.Path(exists=True, dir_okay=False))
+    @click.option("--from", "start", required=True, type=click.DateTime(formats=["%Y-%m-%d"]))
+    @click.option("--to", "end", required=True, type=click.DateTime(formats=["%Y-%m-%d"]))
+    def billing_compare(to_invoice, start, end):
+        """Parallel run: compare billed lunches with a v1.4 to_invoice CSV over a date range."""
+        from .compare import compare_with_v14
+        with open(to_invoice, "rb") as f:
+            r = compare_with_v14(app.extensions["repo"], _inst(), f.read(), start.date(), end.date())
+        click.echo(f"v1.4 priced rows: {r['v14_rows']}   this app: {r['our_rows']}   in both: {r['matching_rows']}")
+        click.echo(f"totals: v1.4 ${r['v14_total_cents'] / 100:,.2f}   this app ${r['our_total_cents'] / 100:,.2f}")
+        click.echo(f"price differences on shared rows: {len(r['price_mismatches'])}")
+        for row in r["price_mismatches"][:20]:
+            click.echo(f"   {row}")
+        click.echo("billed by v1.4 only, with this app's reason:")
+        for (cls, note), n in r["only_v14"].most_common():
+            click.echo(f"   {n:4d}  {cls}  {note or ''}")
+        click.echo(f"billed by this app only: {len(r['only_ours'])}")
+        for row in r["only_ours"][:20]:
+            click.echo(f"   {row}")
+
+    app.cli.add_command(billing_group)
     app.cli.add_command(db_group)
     app.cli.add_command(inst_group)
     app.cli.add_command(staff_group)

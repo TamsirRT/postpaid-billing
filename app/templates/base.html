@@ -15,6 +15,9 @@
       {% if g.staff.role %}
       <a href="{{ url_for('main.dashboard') }}">Dashboard</a>
       <a href="{{ url_for('main.students') }}">Students</a>
+      <a href="{{ url_for('main.orders') }}">Orders</a>
+      <a href="{{ url_for('main.review') }}">Review</a>
+      <a href="{{ url_for('main.rates') }}">Rates</a>
       <a href="{{ url_for('main.missing_contacts') }}">Missing contacts</a>
       {% endif %}
       {% if role_at_least(g.staff.role, 'super_admin') %}<a href="{{ url_for('main.staff_list') }}">Staff</a>{% endif %}

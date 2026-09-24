@@ -8,7 +8,7 @@ The design lives in the spec doc **MealMode Postpaid Billing — System Spec v2*
 | --- | --- |
 | 0 — Foundation: schema, staff sign-in and roles, dashboard shell, deploy config | **Done (this code)** |
 | 0.5 — Contacts: edit parent contacts, flag billed children with no email, school export | **Done (this code)** |
-| 1 — Orders import, check-in classification, rates, guardians, waivers, offline payments, exports | Next |
+| 1 — Orders import, check-in sorting, review queue, rates, waivers, offline payments, v1.4 comparison | **Done (this code)** |
 | 2 — Parent portal and manual statement sends | |
 | 3 — Stripe (bank + card) | |
 | 4 — Scheduled cycles | |
@@ -21,11 +21,15 @@ migrations/002_balance_views.sql             v_check_in_ledger, v_student_balanc
 migrations/003_contacts_and_checkin_fields.sql  phone-only contacts, no-lunch check-ins,
                                              the missing-contacts and statement-recipient views
 migrations/004_excluded_checkins_hardcoded_start.sql  'excluded' check-ins (bill_separately); start date moves to code
+migrations/005_default_price_and_allocation.sql  settable standard price ($7.90), apply_credit(), offline payments
+app/importer.py, app/names.py                orders CSV parsing; name matching ported from v1.4
+app/classify.py                              the sorting run: match orders, sort check-ins, late orders, credit
+app/compare.py                               parallel run against a v1.4 to_invoice file
 app/billing_rules.py                         hard-coded billing start date and the check-in classification rules
 app/                                         Flask app: sign-in, roles, dashboard, students, contacts, CLI
 tests/test_app.py, tests/test_contacts.py    web layer with in-memory fakes
 tests/test_repo_sql.py                       the app's real SQL against real Postgres, with roster data shaped like the export
-tests/sql/test_schema.sql, test_contacts.sql 69 checks that the database enforces the money and contact rules
+tests/sql/test_*.sql                        98 checks that the database enforces the money and contact rules
 tests/sql/stub_public.sql                    stand-ins for students / check_ins, column for column from the exports
 ```
 
@@ -106,6 +110,42 @@ New service → Deploy from GitHub repo. Set variables: `APP_ENV=production`, `S
 
 Migrations are **not** run on deploy on purpose: a billing schema change should be applied by a person who has read it.
 
+## Phase 1: using it
+
+**Every week or two:**
+1. **Orders → Upload** the ALL ORDERS export and enter when you downloaded it. Check-ins are sorted automatically.
+   Only days *before* the download time are billed, so a missing upload delays billing instead of charging families who pre-ordered.
+2. **Review** anything the app wouldn't guess: order names it couldn't match to exactly one student. Pick the child once; every past and future order under that name follows. Matching re-sorts affected days automatically (unpaid ones only).
+3. **Students → a child** shows every check-in and how it was sorted, what's paid, and a **Waive** button (reason required).
+   **Record a payment** there for cash, checks, or Zoho: it pays the oldest unpaid lunches first; extra becomes credit that pays future lunches automatically.
+
+**Rates** (super admin): the standard price per post-paid lunch (starts at $7.90) and optional special-price periods for promos. Unpaid lunches follow price changes immediately; a lunch's price locks once any money lands on it. A period that paid lunches depend on can't be deleted.
+
+**How check-ins are sorted** (`app/billing_rules.py`, first match wins): before Aug 31, 2026 → not billed · `getting_lunch = false` → no lunch · `bill_separately = true` → not included · second check-in that day → duplicate · non-refunded order that day → pre-ordered · otherwise → **post-paid**.
+
+**Parallel run against v1.4:**
+```bash
+flask --app wsgi billing compare-v14 path/to/to_invoice.csv --from 2026-08-31 --to 2026-09-24
+```
+
+### Acceptance result (Sep 24, 2026, real data)
+Students export, 13,803 check-ins, and the ALL ORDERS export, run through the real SQL, compared with v1.4's `to_invoice_2025-08-31_to_2026-09-24.csv` for Aug 31–Sep 18, 2026:
+
+| | v1.4 | This app |
+| --- | --- | --- |
+| Post-paid lunches | 306 | 301 |
+| Total | $2,417.40 | $2,377.90 |
+| Same lunch, different price | | 0 |
+| Billed only by this app | | 0 |
+
+All 5 differences are check-ins with `getting_lunch = false`, which v1.4 billed and this app doesn't (5 × $7.90 = $39.50). A second run added nothing.
+
+16 order names from the billing period need matching in Review. From first names, about 7 lunches ($55.30) for three children look like days they had orders; **both** tools currently bill those. Matching them in Review fixes it.
+
+### Known limits
+- A price change shows its impact (lunches and dollars affected) right *after* saving, not as a preview before. Paid lunches are never affected.
+- Payments are never edited or deleted. A mistaken or bounced one is **reversed** from the student page (reason required): the lunches it paid become unpaid again, and the reversal stays on record.
+
 ## Contacts
 
 Parent contacts live in `billing.guardians`, not in the check-in app's `students` table, which billing never writes to.
@@ -123,7 +163,7 @@ Children without a usable email are simply **skipped** by statements. Nothing er
 ```bash
 python -m unittest discover -s tests -t . -v                   # web layer; DB tests skip
 TEST_PG="host=localhost user=postgres" python -m unittest discover -s tests -t . -v
-PGHOST=localhost PGUSER=postgres scripts/test_sql.sh           # 69 schema checks
+PGHOST=localhost PGUSER=postgres scripts/test_sql.sh           # 98 schema checks
 ```
 
 The last two need a **local** Postgres 14+ you can create databases on. Never point them at Supabase.

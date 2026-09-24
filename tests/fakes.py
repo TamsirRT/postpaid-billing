@@ -32,7 +32,8 @@ class FakeRepo:
         self.audit_log = []
         self.institution = {
             "id": "inst-1", "slug": "sacred-heart", "name": "Sacred Heart School of Glyndon",
-            "auto_send_enabled": False,
+            "auto_send_enabled": False, "default_price_cents": 790, "timezone": "America/New_York",
+            "ordering_location_name": "Sacred Heart School of Glyndon", "ordering_module_name": "Order",
         } if institution else None
         self.dashboard_row = {
             "students_owing": 0, "outstanding_cents": 0, "oldest_unpaid_date": None,
@@ -171,3 +172,10 @@ class FakeRepo:
                 rows.append(dict(st, balance_due_cents=self.balances[sid], unpaid_count=1,
                                  oldest_unpaid_date="2026-09-15", reason=reason))
         return rows
+
+    # ------------------------------------------------------------ phase 1 (web-layer stand-ins; real SQL is tested in test_phase1.py)
+    def student_lunches(self, institution_id, student_id):
+        return []
+
+    def student_payments(self, institution_id, student_id):
+        return []

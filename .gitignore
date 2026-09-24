@@ -6,3 +6,5 @@ venv/
 .pytest_cache/
 *.csv
 !tests/fixtures/*.csv
+.venc/
+*~

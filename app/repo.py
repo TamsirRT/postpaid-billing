@@ -6,18 +6,20 @@ data-modifying CTE), so the change and its audit row commit or fail together.
 
 import json
 
+from .repo_billing import BillingRepoMixin
+
 ROLES = ("viewer", "admin", "super_admin")
 ROLE_RANK = {None: 0, "viewer": 1, "admin": 2, "super_admin": 3}
 
 
-class Repo:
+class Repo(BillingRepoMixin):
     def __init__(self, db):
         self.db = db
 
     # ------------------------------------------------------------- institutions
     SQL_GET_INSTITUTION = """
         select id, slug, name, ordering_location_name, ordering_module_name,
-               cycle_anchor_date, cycle_length_days, auto_send_enabled, timezone
+               cycle_anchor_date, cycle_length_days, auto_send_enabled, timezone, default_price_cents
           from billing.institutions
          where slug = %(slug)s
     """

@@ -1,0 +1,30 @@
+{% extends "base.html" %}
+{% block title %}Orders{% endblock %}
+{% block content %}
+<h1>Orders</h1>
+<p>Check-ins are only billed for days the orders export covers, so a missing upload delays billing instead of charging families who pre-ordered.</p>
+{% if role_at_least(g.staff.role, 'admin') %}
+<section class="card">
+  <h2>Upload an ALL ORDERS export</h2>
+  <form method="post" action="{{ url_for('main.orders') }}" enctype="multipart/form-data" class="grid-form">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+    <div><label for="file">CSV file</label><input id="file" name="file" type="file" accept=".csv,text/csv" required></div>
+    <div><label for="exported_at">When was it downloaded?</label><input id="exported_at" name="exported_at" type="datetime-local" value="{{ now_local }}" required></div>
+    <div><button class="primary" type="submit">Upload and sort check-ins</button></div>
+  </form>
+  <p class="muted">Days up to the day before the download time get billed. Uploading the same file twice is harmless.</p>
+</section>
+{% endif %}
+<h2>Recent uploads</h2>
+<div class="table-wrap"><table>
+  <thead><tr><th scope="col">File</th><th scope="col">Downloaded</th><th scope="col">Uploaded</th><th scope="col" class="amount">Rows</th><th scope="col" class="amount">New rows</th><th scope="col">By</th></tr></thead>
+  <tbody>
+  {% for b in batches %}
+    <tr><td>{{ b.filename }}</td><td>{{ b.exported_at|when }}</td><td>{{ b.uploaded_at|when }}</td>
+        <td class="amount">{{ b.row_count }}</td><td class="amount">{{ b.new_rows }}</td><td>{{ b.uploaded_by_email or 'command line' }}</td></tr>
+  {% else %}
+    <tr><td colspan="6" class="muted">No orders uploaded yet.</td></tr>
+  {% endfor %}
+  </tbody>
+</table></div>
+{% endblock %}

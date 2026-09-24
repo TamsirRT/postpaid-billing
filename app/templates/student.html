@@ -46,6 +46,84 @@
   {% endif %}
 </section>
 
+<section class="card">
+  <h2>Lunches</h2>
+  {% set labels = {'post_paid': 'Post-paid', 'pre_ordered': 'Pre-ordered', 'no_lunch': 'No lunch taken', 'excluded': 'Not included', 'duplicate': 'Duplicate check-in'} %}
+  {% set status_labels = {'open': 'Unpaid', 'partial': 'Part paid', 'paid': 'Paid', 'waived': 'Waived', 'needs_rate': 'No price'} %}
+  {% if lunches %}
+  <div class="table-wrap"><table>
+    <thead><tr><th scope="col">Date</th><th scope="col">Type</th><th scope="col" class="amount">Price</th><th scope="col" class="amount">Paid</th><th scope="col">Status</th><th scope="col"><span class="sr-only">Actions</span></th></tr></thead>
+    <tbody>
+    {% for l in lunches %}
+      <tr>
+        <td>{{ l.service_date|when }}</td>
+        <td>{{ labels.get(l.classification, l.classification) }}{% if l.classification_note and l.classification != 'post_paid' %}<br><span class="muted small">{{ l.classification_note }}</span>{% endif %}</td>
+        {% if l.classification == 'post_paid' %}
+        <td class="amount">{{ l.price_cents|dollars }}<br><span class="muted small">{{ l.rate_label }}{% if l.price_locked in (True, 't') %} · locked{% endif %}</span></td>
+        <td class="amount">{{ l.allocated_cents|dollars }}</td>
+        <td>{{ status_labels.get(l.status, l.status) }}{% if l.status == 'waived' %}<br><span class="muted small">{{ l.waive_reason }}</span>{% endif %}</td>
+        <td>{% if role_at_least(g.staff.role, 'admin') and l.status != 'waived' %}
+          <details><summary>Waive</summary>
+            <form method="post" action="{{ url_for('main.student_waive', student_id=s.id, check_in_id=l.check_in_id) }}">
+              <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+              <label for="w-{{ loop.index }}">Reason</label>
+              <input id="w-{{ loop.index }}" name="reason" type="text" required placeholder="e.g. field trip, billed in error">
+              <button class="primary small" type="submit">Waive lunch</button>
+            </form></details>{% endif %}</td>
+        {% else %}
+        <td class="amount muted">—</td><td class="amount muted">—</td><td class="muted">Not billed</td><td></td>
+        {% endif %}
+      </tr>
+    {% endfor %}
+    </tbody>
+  </table></div>
+  {% else %}
+  <p class="muted">No check-ins sorted yet for this child.</p>
+  {% endif %}
+</section>
+
+<section class="card">
+  <h2>Payments</h2>
+  {% if payments %}
+  <div class="table-wrap"><table>
+    <thead><tr><th scope="col">Received</th><th scope="col" class="amount">Amount</th><th scope="col">Method</th><th scope="col">Note</th><th scope="col">Recorded by</th><th scope="col"><span class="sr-only">Actions</span></th></tr></thead>
+    <tbody>
+    {% for p in payments %}
+      <tr{% if p.reversed_reason %} class="reversed"{% endif %}>
+        <td>{{ p.received_at|when }}</td><td class="amount">{{ p.amount_cents|dollars }}</td><td>{{ p.method }}</td>
+        <td>{{ p.note or '' }}{% if p.reversed_reason %}<br><span class="warn">Reversed: {{ p.reversed_reason }}</span>{% endif %}</td>
+        <td>{{ p.recorded_by_email or 'Online' }}</td>
+        <td>{% if role_at_least(g.staff.role, 'admin') and not p.reversed_reason and p.recorded_by_email %}
+          <details><summary>Reverse</summary>
+            <form method="post" action="{{ url_for('main.student_reverse_payment', student_id=s.id, payment_id=p.id) }}">
+              <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+              <label for="r-{{ loop.index }}">Reason</label>
+              <input id="r-{{ loop.index }}" name="reason" type="text" required placeholder="e.g. entered twice, check bounced">
+              <button class="primary small" type="submit">Reverse payment</button>
+            </form></details>{% endif %}</td>
+      </tr>
+    {% endfor %}
+    </tbody>
+  </table></div>
+  {% else %}
+  <p class="muted">No payments yet.</p>
+  {% endif %}
+  {% if s.credit_cents|int > 0 %}<p>Credit waiting for future lunches: <strong>{{ s.credit_cents|dollars }}</strong></p>{% endif %}
+  {% if role_at_least(g.staff.role, 'admin') %}
+  <h3>Record a payment made outside the app</h3>
+  <form method="post" action="{{ url_for('main.student_record_payment', student_id=s.id) }}" class="grid-form">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+    <div><label for="amount">Amount ($)</label><input id="amount" name="amount" type="text" inputmode="decimal" placeholder="15.80" required></div>
+    <div><label for="method">Paid by</label>
+      <select id="method" name="method" required><option value="">Choose…</option><option value="cash">Cash</option><option value="check">Check</option><option value="zoho">Zoho</option><option value="other">Other</option></select></div>
+    <div><label for="received_on">Received on</label><input id="received_on" name="received_on" type="date" value="{{ today }}" max="{{ today }}" required></div>
+    <div><label for="note">Note</label><input id="note" name="note" type="text" placeholder="e.g. check #1041"></div>
+    <div><button class="primary" type="submit">Record payment</button></div>
+  </form>
+  <p class="muted">Applied to the oldest unpaid lunches first. Anything left over becomes credit for future lunches.</p>
+  {% endif %}
+</section>
+
 {% if role_at_least(g.staff.role, 'admin') %}
 <section class="card">
   <h2>Add a contact</h2>

@@ -1,0 +1,51 @@
+{% extends "base.html" %}
+{% block title %}Rates{% endblock %}
+{% block content %}
+<h1>Rates</h1>
+{% set can_edit = role_at_least(g.staff.role, 'super_admin') %}
+<p>Unpaid lunches always use the current price for their date. Once any money is applied to a lunch, its price is locked.</p>
+<section class="card">
+  <h2>Standard price per post-paid lunch</h2>
+  <p class="big">{{ g.institution.default_price_cents|dollars }}</p>
+  {% if can_edit %}
+  <form method="post" action="{{ url_for('main.rates_default') }}" class="grid-form">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+    <div><label for="price">New standard price ($)</label><input id="price" name="price" type="text" inputmode="decimal" placeholder="7.90" required></div>
+    <div><button class="primary" type="submit">Change price</button></div>
+  </form>
+  <p class="muted">Changing this reprices every unpaid lunch that isn't in a special-price period below.</p>
+  {% endif %}
+</section>
+
+<section class="card">
+  <h2>Special-price periods</h2>
+  <p class="muted">For promos, e.g. a lower price for the first two weeks. A period overrides the standard price for lunches on its dates.</p>
+  <div class="table-wrap"><table>
+    <thead><tr><th scope="col">From</th><th scope="col">To</th><th scope="col" class="amount">Price</th><th scope="col">Label</th><th scope="col" class="amount">Lunches</th><th scope="col"><span class="sr-only">Actions</span></th></tr></thead>
+    <tbody>
+    {% for p in periods %}
+      <tr><td>{{ p.starts_on|when }}</td><td>{{ p.ends_on|when }}</td><td class="amount">{{ p.price_cents|dollars }}</td><td>{{ p.label or '' }}</td>
+          <td class="amount">{{ p.lunches }}{% if p.locked_lunches|int %} ({{ p.locked_lunches }} paid){% endif %}</td>
+          <td>{% if can_edit and not p.locked_lunches|int %}
+            <form method="post" action="{{ url_for('main.rates_delete_period', period_id=p.id) }}" class="inline">
+              <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><button class="link-dark">Remove</button></form>
+          {% elif p.locked_lunches|int %}<span class="muted">In use</span>{% endif %}</td></tr>
+    {% else %}
+      <tr><td colspan="6" class="muted">None. Every lunch uses the standard price.</td></tr>
+    {% endfor %}
+    </tbody>
+  </table></div>
+  {% if can_edit %}
+  <h3>Add a period</h3>
+  {% for e in errors %}<p class="flash flash-error" role="alert">{{ e }}</p>{% endfor %}
+  <form method="post" action="{{ url_for('main.rates_add_period') }}" class="grid-form">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+    <div><label for="starts_on">From</label><input id="starts_on" name="starts_on" type="date" value="{{ form.get('starts_on', '') }}" required></div>
+    <div><label for="ends_on">To (inclusive)</label><input id="ends_on" name="ends_on" type="date" value="{{ form.get('ends_on', '') }}" required></div>
+    <div><label for="pprice">Price ($)</label><input id="pprice" name="price" type="text" inputmode="decimal" placeholder="5.00" value="{{ form.get('price', '') }}" required></div>
+    <div><label for="label">Label parents see</label><input id="label" name="label" type="text" placeholder="Back-to-school promo" value="{{ form.get('label', '') }}"></div>
+    <div><button class="primary" type="submit">Add period</button></div>
+  </form>
+  {% endif %}
+</section>
+{% endblock %}
