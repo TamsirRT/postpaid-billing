@@ -627,6 +627,20 @@ class BillingRepoMixin:
         applied = int(self.db.fetch_one(self.SQL_APPLY_CREDIT, {"sid": student_id})["applied"]) if n else 0
         return {"reversed": n, "reapplied_cents": applied}
 
+    # ================================================================ parent payment amounts
+    # Parents pay for whole lunches, oldest first. Credit is applied first so the
+    # options always reflect what is really still owed.
+    SQL_PAYMENT_OPTIONS = """
+        select lunches, service_date, rate_label, open_cents, amount_cents
+          from billing.v_payment_options
+         where institution_id = %(iid)s and student_id = %(sid)s
+         order by lunches
+    """
+
+    def payment_options(self, institution_id, student_id):
+        self.db.fetch_one(self.SQL_APPLY_CREDIT, {"sid": student_id})
+        return self.db.fetch_all(self.SQL_PAYMENT_OPTIONS, {"iid": institution_id, "sid": student_id})
+
     # ================================================================ v1.4 comparison
     SQL_POST_PAID_IN_RANGE = """
         select l.student_id, l.service_date, l.price_cents

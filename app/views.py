@@ -148,7 +148,8 @@ def _reachable(guardians):
 
 
 def _student_money(inst, sid):
-    return {"lunches": _repo().student_lunches(inst["id"], sid),
+    return {"pay_options": _repo().payment_options(inst["id"], sid),
+            "lunches": _repo().student_lunches(inst["id"], sid),
             "payments": _repo().student_payments(inst["id"], sid),
             "today": datetime.now(ZoneInfo(inst.get("timezone") or "America/New_York")).date().isoformat()}
 

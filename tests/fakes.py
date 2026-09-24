@@ -179,3 +179,6 @@ class FakeRepo:
 
     def student_payments(self, institution_id, student_id):
         return []
+
+    def payment_options(self, institution_id, student_id):
+        return []

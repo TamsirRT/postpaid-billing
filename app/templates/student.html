@@ -82,6 +82,21 @@
   {% endif %}
 </section>
 
+{% if pay_options %}
+<section class="card">
+  <h2>What a parent can pay online</h2>
+  <p class="muted">Whole lunches, oldest first, each at its own price. These are the only amounts the parent page will offer.</p>
+  <div class="table-wrap"><table class="pay-options">
+    <thead><tr><th scope="col">Pay for</th><th scope="col">Up to</th><th scope="col" class="amount">Amount</th></tr></thead>
+    <tbody>
+    {% for o in pay_options %}
+      <tr><td>{{ o.lunches }} lunch{{ '' if o.lunches|int == 1 else 'es' }}</td><td>{{ o.service_date|when }} <span class="muted small">({{ o.open_cents|dollars }}, {{ o.rate_label }})</span></td><td class="amount">{{ o.amount_cents|dollars }}</td></tr>
+    {% endfor %}
+    </tbody>
+  </table></div>
+</section>
+{% endif %}
+
 <section class="card">
   <h2>Payments</h2>
   {% if payments %}

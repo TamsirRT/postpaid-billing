@@ -22,6 +22,8 @@ migrations/003_contacts_and_checkin_fields.sql  phone-only contacts, no-lunch ch
                                              the missing-contacts and statement-recipient views
 migrations/004_excluded_checkins_hardcoded_start.sql  'excluded' check-ins (bill_separately); start date moves to code
 migrations/005_default_price_and_allocation.sql  settable standard price ($7.90), apply_credit(), offline payments
+migrations/006_meal_increment_payments.sql   parents pay whole lunches, oldest first (v_payment_options + a guard on online payments)
+app/payments.py                              the parent payment-amount rule, for phase 3 checkout
 app/importer.py, app/names.py                orders CSV parsing; name matching ported from v1.4
 app/classify.py                              the sorting run: match orders, sort check-ins, late orders, credit
 app/compare.py                               parallel run against a v1.4 to_invoice file
@@ -119,6 +121,8 @@ Migrations are **not** run on deploy on purpose: a billing schema change should 
 3. **Students → a child** shows every check-in and how it was sorted, what's paid, and a **Waive** button (reason required).
    **Record a payment** there for cash, checks, or Zoho: it pays the oldest unpaid lunches first; extra becomes credit that pays future lunches automatically.
 
+**What parents can pay** (from phase 3): whole lunches only, oldest first, each at its own price. Pay for 1 lunch, 2 lunches, … up to everything owed; with a $5.00 promo lunch then two $7.90 lunches, the choices are $5.00, $12.90, and $20.80. The student page shows each child's options. The database refuses to start an online payment for any other amount. **Staff-recorded payments are not restricted**: record what was actually handed over, and any remainder is credit.
+
 **Rates** (super admin): the standard price per post-paid lunch (starts at $7.90) and optional special-price periods for promos. Unpaid lunches follow price changes immediately; a lunch's price locks once any money lands on it. A period that paid lunches depend on can't be deleted.
 
 **How check-ins are sorted** (`app/billing_rules.py`, first match wins): before Aug 31, 2026 → not billed · `getting_lunch = false` → no lunch · `bill_separately = true` → not included · second check-in that day → duplicate · non-refunded order that day → pre-ordered · otherwise → **post-paid**.
@@ -144,6 +148,7 @@ All 5 differences are check-ins with `getting_lunch = false`, which v1.4 billed 
 
 ### Known limits
 - A price change shows its impact (lunches and dollars affected) right *after* saving, not as a preview before. Paid lunches are never affected.
+- If a price changes between a parent opening checkout and the payment landing (rare), the payment still applies oldest-first; the last lunch may end up part-paid, and the parent's next options start with its remainder.
 - Payments are never edited or deleted. A mistaken or bounced one is **reversed** from the student page (reason required): the lunches it paid become unpaid again, and the reversal stays on record.
 
 ## Contacts
