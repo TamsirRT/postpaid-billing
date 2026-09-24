@@ -203,8 +203,10 @@ class Phase3EndToEndTests(unittest.TestCase):
         self.assertEqual(admin.post("/rates/fee", data={"csrf_token": self.token(admin, "/rates"), "fee": "0"}).status_code, 403)
         portal = self.app.test_client().get(self.link(self.lopez)).get_data(as_text=True)
         self.assertIn("Meal $7.90 + processing $0.35", portal)
-        self.assertIn("Pay $8.25", portal)
-        self.assertIn("Pay $16.50", portal)
+        self.assertIn('data-amount="$8.25"', portal)
+        self.assertIn("All 2 lunches", portal)
+        self.assertIn("Pay $16.50</button>", portal)            # one button, full balance selected by default
+        self.assertEqual(portal.count("data-pay-button"), 2)    # one per child
         self.assertIn("payment-processing amount, shown separately", portal)
         self.assertEqual(self.balance("ava"), 1650)
 

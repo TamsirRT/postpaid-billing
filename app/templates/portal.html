@@ -6,6 +6,7 @@
   <meta name="robots" content="noindex, nofollow">
   <title>Lunch account · MealMode</title>
   <link rel="stylesheet" href="{{ url_for('static', filename='app.css') }}">
+  <script src="{{ url_for('static', filename='portal.js') }}" defer></script>
 </head>
 <body class="portal">
   <header class="topbar"><span class="brand">MealMode <span>{{ institution.name }}</span></span></header>
@@ -25,14 +26,26 @@
         <h3>Pay for lunches</h3>
         <p class="muted small">Payments cover whole lunches, oldest first.</p>
         {% if can_pay %}
-        <ul class="pay-list">
-          {% for o in c.pay_options %}<li><span>{{ o.lunches }} lunch{{ '' if o.lunches|int == 1 else 'es' }} <span class="muted small">through {{ o.service_date|when }}</span></span>
-            <form method="post" action="{{ url_for('main.portal_pay', token=token) }}" class="inline">
-              <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-              <input type="hidden" name="student_id" value="{{ c.id }}"><input type="hidden" name="lunches" value="{{ o.lunches }}">
-              <button class="primary small" type="submit" aria-label="Pay {{ o.amount_cents|dollars }} for {{ o.lunches }} lunches for {{ c.first_name }}">Pay {{ o.amount_cents|dollars }}</button>
-            </form></li>{% endfor %}
-        </ul>
+        {% set full = c.pay_options|last %}
+        <form method="post" action="{{ url_for('main.portal_pay', token=token) }}" class="pay-form">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+          <input type="hidden" name="student_id" value="{{ c.id }}">
+          <fieldset>
+            <legend>How many lunches do you want to pay for?</legend>
+            <div class="pay-choices">
+            {% for o in c.pay_options|reverse %}
+              {% set rid = 'pay-' ~ loop.index ~ '-' ~ c.id %}
+              <label class="pay-choice" for="{{ rid }}">
+                <input type="radio" id="{{ rid }}" name="lunches" value="{{ o.lunches }}" data-amount="{{ o.amount_cents|dollars }}" {% if loop.first %}checked{% endif %} required>
+                <span class="pay-what"><span>{% if loop.first %}All {{ o.lunches }} lunch{{ '' if o.lunches|int == 1 else 'es' }} <span class="tag">Full balance</span>{% else %}{{ o.lunches }} lunch{{ '' if o.lunches|int == 1 else 'es' }}{% endif %}</span>
+                  <span class="muted small">{% if o.lunches|int == 1 %}{{ o.service_date|when }}{% else %}oldest first, through {{ o.service_date|when }}{% endif %}</span></span>
+                <strong class="pay-amount">{{ o.amount_cents|dollars }}</strong>
+              </label>
+            {% endfor %}
+            </div>
+          </fieldset>
+          <button class="primary pay-button" type="submit" data-pay-button>Pay {{ full.amount_cents|dollars }}</button>
+        </form>
         <p class="muted small">You'll pay on Stripe's secure page by card or bank account. Your card and bank details never reach MealMode.</p>
         {% else %}
         <ul class="pay-list">
