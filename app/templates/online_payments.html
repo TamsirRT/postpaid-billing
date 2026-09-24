@@ -1,0 +1,36 @@
+{% extends "base.html" %}
+{% block title %}Online payments{% endblock %}
+{% block content %}
+<h1>Online payments</h1>
+{% if not stripe_mode() %}
+<p class="flash flash-info">Online payments are off. Set STRIPE_SECRET_KEY and STRIPE_WEBHOOK_SECRET to turn them on.</p>
+{% elif stripe_mode() == 'test' %}
+<p class="flash flash-info">Stripe is in <strong>test mode</strong>: no real money moves. Use Stripe's test card 4242 4242 4242 4242.</p>
+{% endif %}
+<p class="muted">Payments parents made on their page. Card payments count as soon as they go through. Bank payments show as <em>Clearing</em> for a few business days and only count once the money arrives. To refund, use the Stripe dashboard; the app reverses the payment automatically.</p>
+{% set labels = {'pending': 'Started, not finished', 'processing': 'Clearing', 'succeeded': 'Paid', 'failed': 'Failed', 'canceled': 'Abandoned'} %}
+<div class="table-wrap"><table>
+  <thead><tr><th scope="col">Started</th><th scope="col">Child</th><th scope="col">Parent</th><th scope="col" class="amount">Amount</th><th scope="col">Method</th><th scope="col">Status</th><th scope="col"><span class="sr-only">Stripe</span></th></tr></thead>
+  <tbody>
+  {% for r in rows %}
+    <tr{% if r.needs_attention %} class="attention"{% endif %}>
+      <td>{{ r.created_at|when }}</td>
+      <td><a href="{{ url_for('main.student_detail', student_id=r.student_id) }}">{{ r.first_name }} {{ r.last_name }}</a></td>
+      <td>{{ r.guardian_name or '' }}</td>
+      <td class="amount">{{ r.amount_cents|dollars }}<br><span class="muted small">{{ r.lunches }} lunch{{ '' if r.lunches|int == 1 else 'es' }}</span></td>
+      <td>{{ r.method|method_label if r.method else '—' }}</td>
+      <td>{% if r.reversed in (True, 't') %}<span class="warn">Reversed</span>{% if r.disputed_at %} (disputed){% elif r.refunded_cents|int >= r.amount_cents|int %} (refunded){% endif %}{% else %}{{ labels.get(r.status, r.status) }}{% if r.refunded_cents|int %} ({{ r.refunded_cents|dollars }} refunded){% endif %}{% endif %}
+          {% if r.failure_reason and r.status in ('failed',) %}<br><span class="muted small">{{ r.failure_reason }}</span>{% endif %}
+          {% if r.needs_attention %}<br><strong>Needs attention:</strong> {{ r.needs_attention }}
+            {% if role_at_least(g.staff.role, 'admin') %}
+            <form method="post" action="{{ url_for('main.online_payment_resolved', intent_id=r.id) }}" class="inline">
+              <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><button class="link-dark" type="submit">Mark handled</button></form>{% endif %}
+          {% endif %}</td>
+      <td>{% if r.stripe_payment_intent %}<a href="{{ dash }}payments/{{ r.stripe_payment_intent }}" target="_blank" rel="noopener">Open in Stripe</a>{% endif %}</td>
+    </tr>
+  {% else %}
+    <tr><td colspan="7" class="muted">No online payments yet.</td></tr>
+  {% endfor %}
+  </tbody>
+</table></div>
+{% endblock %}

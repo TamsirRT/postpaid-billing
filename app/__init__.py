@@ -7,7 +7,7 @@ from .db import Database
 from .repo import Repo, role_at_least
 
 
-def create_app(overrides=None, repo=None, auth=None, mailer=None):
+def create_app(overrides=None, repo=None, auth=None, mailer=None, stripe=None):
     app = Flask(__name__)
     app.config.update(load_config(overrides))
 
@@ -21,6 +21,10 @@ def create_app(overrides=None, repo=None, auth=None, mailer=None):
     app.extensions["repo"] = repo
     app.extensions["auth"] = auth
     app.extensions["mailer"] = mailer
+    if stripe is None and app.config.get("STRIPE_SECRET_KEY"):
+        from .stripe_client import StripeClient
+        stripe = StripeClient(app.config["STRIPE_SECRET_KEY"])
+    app.extensions["stripe"] = stripe          # None = online payments off
 
     @app.before_request
     def _before():
@@ -28,7 +32,8 @@ def create_app(overrides=None, repo=None, auth=None, mailer=None):
         if request.endpoint == "static":
             return
         load_current_staff()
-        check_csrf()
+        if request.endpoint != "main.stripe_webhook":     # Stripe signs its requests instead
+            check_csrf()
         g.institution = repo.get_institution(app.config["INSTITUTION_SLUG"])
 
     @app.after_request
@@ -51,6 +56,8 @@ def create_app(overrides=None, repo=None, auth=None, mailer=None):
     app.jinja_env.globals["email_test_recipient"] = lambda: app.extensions["mailer"].test_recipient
     app.jinja_env.filters["dollars"] = format_cents
     app.jinja_env.filters["when"] = format_when
+    app.jinja_env.filters["method_label"] = method_label
+    app.jinja_env.globals["stripe_mode"] = lambda: app.config.get("STRIPE_MODE")
 
     for code in (400, 403, 404, 429, 500):
         app.register_error_handler(code, _error_page(code))
@@ -70,6 +77,11 @@ def format_cents(cents):
     sign = "-" if cents < 0 else ""
     cents = abs(cents)
     return f"{sign}${cents // 100:,}.{cents % 100:02d}"
+
+
+def method_label(method):
+    return {"card": "card", "ach": "bank payment", "cash": "cash", "check": "check", "zoho": "Zoho",
+            "other": "other"}.get(method, method or "")
 
 
 def format_when(value, tz="America/New_York"):

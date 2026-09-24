@@ -9,18 +9,20 @@
     {% for c in children %}
     <h2 style="font-size:17px;color:#00728F;margin:24px 0 8px;">{{ c.first_name }} {{ c.last_name }}: {{ c.balance_due_cents|dollars }}</h2>
     <table role="presentation" width="100%" cellpadding="6" cellspacing="0" style="border-collapse:collapse;font-size:14px;">
-      <tr style="background:#f4f8f9;"><th align="left" style="border-bottom:1px solid #dde3e6;">Date</th><th align="left" style="border-bottom:1px solid #dde3e6;">Rate</th><th align="right" style="border-bottom:1px solid #dde3e6;">Owed</th></tr>
+      <tr style="background:#f4f8f9;"><th align="left" style="border-bottom:1px solid #dde3e6;">Date</th><th align="left" style="border-bottom:1px solid #dde3e6;">Rate</th>{% if any_fee %}<th align="right" style="border-bottom:1px solid #dde3e6;">Meal</th><th align="right" style="border-bottom:1px solid #dde3e6;">Processing</th>{% endif %}<th align="right" style="border-bottom:1px solid #dde3e6;">Owed</th></tr>
       {% for l in c.lunches %}
       <tr><td style="border-bottom:1px solid #eef1f2;">{{ l.service_date|when }}</td>
           <td style="border-bottom:1px solid #eef1f2;">{{ l.rate_label }}{% if l.allocated_cents|int > 0 %} (part paid){% endif %}</td>
+          {% if any_fee %}<td align="right" style="border-bottom:1px solid #eef1f2;">{{ l.meal_cents|dollars }}</td><td align="right" style="border-bottom:1px solid #eef1f2;">{{ l.fee_cents|dollars }}</td>{% endif %}
           <td align="right" style="border-bottom:1px solid #eef1f2;">{{ l.open_cents|dollars }}</td></tr>
       {% endfor %}
     </table>
     {% endfor %}
     {% if children|length > 1 %}<p style="margin:20px 0 0;font-size:16px;"><strong>Total for all children: {{ total_cents|dollars }}</strong></p>{% endif %}
-    <p style="margin:28px 0;"><a href="{{ portal_url }}" style="background:#F05E43;color:#1a1a1a;text-decoration:none;font-weight:bold;padding:12px 20px;border-radius:6px;display:inline-block;">See every lunch and payment</a></p>
+    <p style="margin:28px 0;"><a href="{{ portal_url }}" style="background:#F05E43;color:#1a1a1a;text-decoration:none;font-weight:bold;padding:12px 20px;border-radius:6px;display:inline-block;">{% if can_pay %}Pay online or see every lunch{% else %}See every lunch and payment{% endif %}</a></p>
     <p style="margin:0 0 8px;font-size:13px;color:#5b6770;">This link is private to you. Please don't forward it.</p>
     <p style="margin:0 0 8px;font-size:13px;color:#5b6770;">{{ fine_print }}</p>
+    {% if fee_print %}<p style="margin:0 0 8px;font-size:13px;color:#5b6770;">{{ fee_print }}</p>{% endif %}
     {% if support_email %}<p style="margin:0;font-size:13px;color:#5b6770;">Questions? Email <a href="mailto:{{ support_email }}" style="color:#00728F;">{{ support_email }}</a>.</p>{% endif %}
   </td></tr>
 </table>

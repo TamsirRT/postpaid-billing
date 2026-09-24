@@ -35,7 +35,7 @@ class NotifyRepoMixin:
         return self.db.fetch_all(self.SQL_GUARDIAN_OWING_CHILDREN, {"iid": institution_id, "gid": guardian_id})
 
     SQL_UNPAID_LUNCHES = """
-        select service_date, rate_label, price_cents, allocated_cents, open_cents
+        select service_date, rate_label, price_cents, allocated_cents, open_cents, meal_cents, fee_cents
           from billing.v_check_in_ledger
          where institution_id = %(iid)s and student_id = %(sid)s and status in ('open', 'partial')
          order by service_date
@@ -212,7 +212,7 @@ class NotifyRepoMixin:
     # What a parent sees per day: pre-ordered, post-paid (with price/status), checked in without lunch.
     SQL_PORTAL_LUNCHES = """
         select cb.service_date, cb.classification, l.price_cents, l.rate_label, l.status, l.allocated_cents,
-               l.price_locked
+               l.price_locked, l.meal_cents, l.fee_cents
           from billing.check_in_billing cb
           left join billing.v_check_in_ledger l on l.check_in_id = cb.check_in_id
          where cb.institution_id = %(iid)s and cb.student_id = %(sid)s

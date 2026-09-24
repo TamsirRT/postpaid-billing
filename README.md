@@ -10,7 +10,7 @@ The design lives in the spec doc **MealMode Postpaid Billing — System Spec v2*
 | 0.5 — Contacts: edit parent contacts, flag billed children with no email, school export | **Done (this code)** |
 | 1 — Orders import, check-in sorting, review queue, rates, waivers, offline payments, v1.4 comparison | **Done (this code)** |
 | 2 — Parent portal, statements (approve-to-send), receipts, email test mode | **Done (this code)** |
-| 3 — Stripe (bank + card) | |
+| 3 — Fee line; online payments with Stripe (card + bank), refunds and disputes | **Done (this code)** |
 | 4 — Scheduled cycles | |
 
 ## What's here
@@ -26,6 +26,8 @@ migrations/006_meal_increment_payments.sql   parents pay whole lunches, oldest f
 migrations/007_statements_and_portal.sql     full email log (mode, intended vs delivered address, content); portal link versions
 app/mailer.py                                SendGrid + the outbox/test/live safety switch
 app/notify.py, app/portal.py                 statements, receipts, parent portal links
+migrations/008_fee_line_and_stripe.sql       processing fee on top of the meal price (locks with it); Stripe event log; record_stripe_payment()
+app/online.py, app/stripe_client.py          Stripe Checkout, webhook handling, signature checks
 app/payments.py                              the parent payment-amount rule, for phase 3 checkout
 app/importer.py, app/names.py                orders CSV parsing; name matching ported from v1.4
 app/classify.py                              the sorting run: match orders, sort check-ins, late orders, credit
@@ -33,9 +35,9 @@ app/compare.py                               parallel run against a v1.4 to_invo
 app/billing_rules.py                         hard-coded billing start date and the check-in classification rules
 app/                                         Flask app: sign-in, roles, dashboard, students, contacts, CLI
 tests/test_app.py, tests/test_contacts.py    web layer with in-memory fakes
-tests/test_phase1.py, tests/test_phase2.py   end to end: real pages, real SQL, recording email backend
+tests/test_phase1-3.py                       end to end: real pages, real SQL, recording email backend, fake Stripe
 tests/test_repo_sql.py                       the app's real SQL against real Postgres, with roster data shaped like the export
-tests/sql/test_*.sql                        110 checks that the database enforces the money and contact rules
+tests/sql/test_*.sql                        129 checks that the database enforces the money and contact rules
 tests/sql/stub_public.sql                    stand-ins for students / check_ins, column for column from the exports
 ```
 
@@ -180,6 +182,28 @@ The app refuses to start if `test`/`live` is missing its key, sender, or test in
 - **Emails**: every statement and receipt with the address it was meant for, where it actually went, status, and the exact content. Failed sends are kept with the error.
 - **Parent page** (`/p/<link>`, no sign-in): each child's balance, whole-lunch pay amounts (oldest first), every lunch (pre-ordered, post-paid with price and status, checked in without lunch), payments, and the fine print. Online payment arrives in phase 3; until then it points to `SUPPORT_EMAIL`. The link is the key, so the page is not indexed, not cached, sends no referrer, and is rate-limited. Only a hash of each link is stored.
 
+## Phase 3: fee line and online payments
+
+### Fee line
+**Rates → Payment processing fee per lunch** (super admin). It's added on top of the meal price: $7.90 meal + $0.35 fee = $8.25. Parents see both parts on the parent page and in statements. The fee is part of every lunch's price however the parent pays, cash and check included, so it isn't a surcharge on online payments. A special-price period can set its own fee; leave the field blank to use the standard fee. The fee locks together with the price when money lands on a lunch. It starts at $0.
+
+### Stripe setup
+1. In the Stripe dashboard (test mode first): **Settings → Payment methods**, make sure **Cards** and **ACH Direct Debit** are on.
+2. **Developers → API keys**: copy the **secret key** (`sk_test_...`).
+3. **Developers → Webhooks → Add endpoint**: URL `https://<your Railway domain>/stripe/webhook`. Events: `checkout.session.completed`, `checkout.session.async_payment_succeeded`, `checkout.session.async_payment_failed`, `checkout.session.expired`, `charge.refunded`, `charge.dispute.created`, `charge.dispute.closed`. Copy its **signing secret** (`whsec_...`).
+4. Railway variables: `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET`. Leave both unset to keep online payments off. The app refuses to start with only one, with a publishable `pk_` key, or with a signing secret that doesn't start with `whsec_`.
+5. Run `flask --app wsgi db migrate` (008) before deploying this code.
+
+Going live later: repeat steps 2–4 with live-mode keys and a live-mode webhook. Test-mode and live-mode data never mix.
+
+### How it works
+- The parent taps **Pay $X** next to a whole-lunch amount and pays on Stripe's hosted page by card or bank account. Card and bank details never reach the app.
+- Nothing counts until Stripe confirms. A card payment is recorded at once: it's applied oldest-first, the prices lock, and receipts go out. A bank payment shows as **Clearing** for a few business days and is recorded when the money arrives. While a bank payment is clearing, that child's Pay buttons are hidden so nobody pays twice.
+- Every Stripe event is verified by its signature and processed once; retries are harmless.
+- **Refunds:** refund in the Stripe dashboard. A full refund reverses the payment in the app and reopens those lunches. A partial refund changes nothing and is flagged on **Online payments** for a person to settle.
+- **Disputes and bank returns:** the payment is reversed automatically and flagged. If you win the dispute, it's flagged again so you can re-record the money.
+- **Online payments** (staff) lists every attempt with status, what needs attention, and a link to it in Stripe.
+
 ## Contacts
 
 Parent contacts live in `billing.guardians`, not in the check-in app's `students` table, which billing never writes to.
@@ -197,7 +221,7 @@ Children without a usable email are simply **skipped** by statements. Nothing er
 ```bash
 python -m unittest discover -s tests -t . -v                   # web layer; DB tests skip
 TEST_PG="host=localhost user=postgres" python -m unittest discover -s tests -t . -v
-PGHOST=localhost PGUSER=postgres scripts/test_sql.sh           # 110 schema checks
+PGHOST=localhost PGUSER=postgres scripts/test_sql.sh           # 129 schema checks
 ```
 
 The last two need a **local** Postgres 14+ you can create databases on. Never point them at Supabase.
@@ -209,6 +233,7 @@ These were built in an environment that couldn't install packages, so be aware:
 - `app/db.py` (the psycopg connection pool) has **never executed**. Every SQL statement it will run *has* been tested against Postgres 16 via `psql`, but the first real run of the Python-to-database path will be yours. Run `flask --app wsgi db status` before anything else.
 - Supabase Auth calls (`app/auth.py`) are tested against a fake, not the real service.
 - Migrations were tested on Postgres 16, not on Supabase itself.
+- Stripe is tested with a stand-in and with webhook events signed the way Stripe signs them. Before going live, run a real test-mode payment end to end: card `4242 4242 4242 4242`, and a test bank account on the Checkout page, then check **Online payments**.
 - SendGrid is tested with a stand-in that records messages. The first real send is yours: set `EMAIL_MODE=test`, send one statement from a contact page, and check the test inbox (and spam).
 
 ## Findings from the real exports (September 2026)

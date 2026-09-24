@@ -8,19 +8,20 @@ import json
 
 from .repo_billing import BillingRepoMixin
 from .repo_notify import NotifyRepoMixin
+from .repo_pay import PayRepoMixin
 
 ROLES = ("viewer", "admin", "super_admin")
 ROLE_RANK = {None: 0, "viewer": 1, "admin": 2, "super_admin": 3}
 
 
-class Repo(BillingRepoMixin, NotifyRepoMixin):
+class Repo(BillingRepoMixin, NotifyRepoMixin, PayRepoMixin):
     def __init__(self, db):
         self.db = db
 
     # ------------------------------------------------------------- institutions
     SQL_GET_INSTITUTION = """
         select id, slug, name, ordering_location_name, ordering_module_name,
-               cycle_anchor_date, cycle_length_days, auto_send_enabled, timezone, default_price_cents
+               cycle_anchor_date, cycle_length_days, auto_send_enabled, timezone, default_price_cents, default_fee_cents
           from billing.institutions
          where slug = %(slug)s
     """

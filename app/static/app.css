@@ -79,3 +79,8 @@ pre.email-text { white-space:pre-wrap; background:var(--soft); padding:12px; bor
 .pay-list li:last-child { border-bottom:0; }
 .notice { background:#fff; border-left:4px solid var(--teal); padding:10px 14px; }
 ul.plain { padding-left:18px; }
+/* phase 3 */
+.flash-ok { border-color:var(--teal); background:#e8f4f7; }
+.pay-list li { align-items:center; }
+.pay-list form.inline { margin:0; }
+.attention td { background:#fff4d6; }

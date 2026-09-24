@@ -32,7 +32,7 @@ class FakeRepo:
         self.audit_log = []
         self.institution = {
             "id": "inst-1", "slug": "sacred-heart", "name": "Sacred Heart School of Glyndon",
-            "auto_send_enabled": False, "default_price_cents": 790, "timezone": "America/New_York",
+            "auto_send_enabled": False, "default_price_cents": 790, "default_fee_cents": 0, "timezone": "America/New_York",
             "ordering_location_name": "Sacred Heart School of Glyndon", "ordering_module_name": "Order",
         } if institution else None
         self.dashboard_row = {

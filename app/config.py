@@ -29,6 +29,9 @@ def load_config(overrides=None):
         "PUBLIC_BASE_URL": (os.environ.get("PUBLIC_BASE_URL") or "").rstrip("/"),
         # Secret for parent portal links. Changing it breaks every link already emailed.
         "PORTAL_SECRET": os.environ.get("PORTAL_SECRET") or "",
+        # Stripe (phase 3). Online payments are off until both are set.
+        "STRIPE_SECRET_KEY": (os.environ.get("STRIPE_SECRET_KEY") or "").strip(),
+        "STRIPE_WEBHOOK_SECRET": (os.environ.get("STRIPE_WEBHOOK_SECRET") or "").strip(),
         # Cookies
         "SESSION_COOKIE_HTTPONLY": True,
         "SESSION_COOKIE_SAMESITE": "Lax",
@@ -41,6 +44,7 @@ def load_config(overrides=None):
         cfg["PUBLIC_BASE_URL"] = "http://127.0.0.1:5000"
 
     check_email_config(cfg)
+    check_stripe_config(cfg)
     if cfg.get("TESTING"):
         return cfg
 
@@ -66,3 +70,14 @@ def check_email_config(cfg):
             raise ConfigError(f"EMAIL_MODE={mode} needs " + ", ".join(missing))
     if mode == "test" and "@" not in cfg["EMAIL_TEST_RECIPIENT"]:
         raise ConfigError("EMAIL_MODE=test needs EMAIL_TEST_RECIPIENT: the one inbox that receives every email")
+
+
+def check_stripe_config(cfg):
+    key, hook = cfg.get("STRIPE_SECRET_KEY") or "", cfg.get("STRIPE_WEBHOOK_SECRET") or ""
+    if bool(key) != bool(hook):
+        raise ConfigError("Set both STRIPE_SECRET_KEY and STRIPE_WEBHOOK_SECRET, or neither (online payments off)")
+    if key and not key.startswith(("sk_test_", "sk_live_", "rk_test_", "rk_live_")):
+        raise ConfigError("STRIPE_SECRET_KEY should start with sk_test_ or sk_live_ (the secret key, not the publishable pk_ key)")
+    if hook and not hook.startswith("whsec_"):
+        raise ConfigError("STRIPE_WEBHOOK_SECRET should start with whsec_ (Stripe > Developers > Webhooks > signing secret)")
+    cfg["STRIPE_MODE"] = None if not key else ("live" if "_live_" in key else "test")

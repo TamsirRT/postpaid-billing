@@ -13,6 +13,8 @@ from .portal import portal_token, token_hash_hex
 
 FINE_PRINT = ("Unpaid post-paid lunches are billed at the current rate for their date and may change until paid. "
               "Paid lunches are locked at the price paid.")
+FEE_PRINT = ("Each lunch's price is the meal price plus a payment-processing amount, shown separately. "
+             "It is the same however you pay.")
 
 
 def portal_url(app_config, repo, institution, guardian):
@@ -44,8 +46,11 @@ def compose_statement(app_config, repo, institution, guardian):
         c["lunches"] = repo.unpaid_lunches(institution["id"], c["student_id"])
     total = sum(int(c["balance_due_cents"]) for c in children)
     names = " & ".join(c["first_name"] for c in children)
+    any_fee = any(int(l.get("fee_cents") or 0) > 0 for c in children for l in c["lunches"])
     ctx = {"institution": institution, "guardian": guardian, "children": children, "total_cents": total,
            "portal_url": portal_url(app_config, repo, institution, guardian), "fine_print": FINE_PRINT,
+           "fee_print": FEE_PRINT if any_fee else None, "any_fee": any_fee,
+           "can_pay": bool(app_config.get("STRIPE_SECRET_KEY")),
            "support_email": app_config.get("SUPPORT_EMAIL")}
     return {
         "subject": f"Lunch balance for {names}: {_dollars(total)}",

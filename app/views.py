@@ -472,6 +472,28 @@ def rates_default():
     return redirect(url_for("main.rates"))
 
 
+@bp.post("/rates/fee")
+@require_role("super_admin")
+def rates_fee():
+    inst = _inst_or_redirect()
+    if not inst:
+        return redirect(url_for("main.dashboard"))
+    cents = _parse_dollars(request.form.get("fee"))
+    if cents is None or cents > 10000:
+        flash("Enter a fee like 0.35 (0 for none).", "error")
+        return redirect(url_for("main.rates"))
+    r = _repo().set_default_fee(inst["id"], cents, g.staff["user_id"], g.staff["email"])
+    if r["old_cents"] == r["new_cents"]:
+        flash("Fee unchanged.", "info")
+    else:
+        delta = (r["new_cents"] - r["old_cents"]) * r["lunches"]
+        flash(f"Payment processing fee changed from {format_cents(r['old_cents'])} to {format_cents(r['new_cents'])} "
+              f"per lunch. {r['lunches']} unpaid lunch(es) for {r['students']} student(s) now cost "
+              f"{'more' if delta > 0 else 'less'}: {format_cents(abs(delta))} in total. Paid lunches keep their price.",
+              "info")
+    return redirect(url_for("main.rates"))
+
+
 @bp.post("/rates/periods")
 @require_role("super_admin")
 def rates_add_period():
@@ -491,6 +513,12 @@ def rates_add_period():
     if cents is None:
         errors.append("Enter a price like 5.00.")
     label = (f.get("label") or "").strip()[:80] or None
+    fee_raw = (f.get("fee") or "").strip()
+    fee = None
+    if fee_raw:
+        fee = _parse_dollars(fee_raw)
+        if fee is None or fee > 10000:
+            errors.append("Enter the processing fee like 0.35, or leave it blank to use the standard fee.")
     if not errors:
         clash = _repo().find_overlapping_period(inst["id"], starts, ends)
         if clash:
@@ -498,8 +526,10 @@ def rates_add_period():
                           "Periods can't overlap.")
     if errors:
         return render_template("rates.html", periods=_repo().rate_periods(inst["id"]), errors=errors, form=f), 400
-    r = _repo().add_rate_period(inst["id"], starts, ends, cents, label, g.staff["user_id"], g.staff["email"])
-    flash(f"Added {format_cents(cents)} for {starts} to {ends}. {r['unpaid_lunches_affected']} unpaid lunch(es) in "
+    r = _repo().add_rate_period(inst["id"], starts, ends, cents, label, g.staff["user_id"], g.staff["email"],
+                                fee_cents=fee)
+    fee_text = f" + {format_cents(fee)} processing" if fee is not None else " + the standard processing fee"
+    flash(f"Added {format_cents(cents)}{fee_text} for {starts} to {ends}. {r['unpaid_lunches_affected']} unpaid lunch(es) in "
           "that range now use this price.", "info")
     return redirect(url_for("main.rates"))
 
@@ -765,26 +795,133 @@ def _portal_rate_limited(ip, limit=60, window=60):
     return len(hits) > limit
 
 
-@bp.get("/p/<token>")
-def portal(token):
+def _portal_guardian(token):
     from .portal import looks_like_token, token_hash_hex
-    if _portal_rate_limited(request.headers.get("X-Forwarded-For", request.remote_addr or "?").split(",")[0].strip()):
-        abort(429)
     guardian = _repo().guardian_by_token_hash(token_hash_hex(token)) if looks_like_token(token) else None
     inst = g.institution
     if not guardian or not inst or str(guardian["institution_id"]) != str(inst["id"]):
-        resp = Response(render_template("portal_missing.html"), status=404)
-    else:
-        children = _repo().portal_children(inst["id"], guardian["id"])
-        for c in children:
-            sid = str(c["id"])
-            c["pay_options"] = _repo().payment_options(inst["id"], sid)
-            c["lunches"] = _repo().portal_lunches(inst["id"], sid)
-            c["payments"] = _repo().portal_payments(inst["id"], sid)
-        from .notify import FINE_PRINT
-        resp = Response(render_template("portal.html", guardian=guardian, children=children, institution=inst,
-                                        fine_print=FINE_PRINT, support_email=current_app.config.get("SUPPORT_EMAIL")))
+        return None, None
+    return guardian, inst
+
+
+def _portal_headers(resp):
     resp.headers["Referrer-Policy"] = "no-referrer"
     resp.headers["Cache-Control"] = "no-store"
     resp.headers["X-Robots-Tag"] = "noindex, nofollow"
+    # the Pay buttons post here and are redirected to Stripe's checkout page
+    resp.headers["Content-Security-Policy"] = (
+        "default-src 'self'; img-src 'self' data:; style-src 'self'; script-src 'self'; "
+        "form-action 'self' https://checkout.stripe.com; frame-ancestors 'none'; base-uri 'none'")
     return resp
+
+
+def _portal_client_ip():
+    return request.headers.get("X-Forwarded-For", request.remote_addr or "?").split(",")[0].strip()
+
+
+@bp.get("/p/<token>")
+def portal(token):
+    if _portal_rate_limited(_portal_client_ip()):
+        abort(429)
+    guardian, inst = _portal_guardian(token)
+    if not guardian:
+        return _portal_headers(Response(render_template("portal_missing.html"), status=404))
+    from .online import payments_enabled
+    children = _repo().portal_children(inst["id"], guardian["id"])
+    any_fee = False
+    for c in children:
+        sid = str(c["id"])
+        c["pay_options"] = _repo().payment_options(inst["id"], sid)
+        c["lunches"] = _repo().portal_lunches(inst["id"], sid)
+        c["payments"] = _repo().portal_payments(inst["id"], sid)
+        c["processing"] = _repo().processing_intents(inst["id"], sid)
+        any_fee = any_fee or any(int(l["fee_cents"] or 0) > 0 for l in c["lunches"] if l.get("fee_cents") is not None)
+    notice = None
+    paid = request.args.get("paid")
+    if paid:
+        it = _repo().get_payment_intent(paid)
+        if it and str(it["guardian_id"]) == str(guardian["id"]):
+            notice = {"succeeded": ("ok", "Payment received. Thank you! A receipt is on its way."),
+                      "processing": ("ok", "Bank payment submitted. It takes a few business days to clear; "
+                                           "the lunches show as paid once it does."),
+                      "failed": ("error", "That payment didn't go through. Nothing was charged."),
+                      }.get(it["status"], ("ok", "Thanks! We're confirming your payment with the bank or card "
+                                                 "company. Refresh this page in a minute."))
+    elif request.args.get("canceled"):
+        notice = ("info", "Payment canceled. Nothing was charged.")
+    from .notify import FINE_PRINT, FEE_PRINT
+    resp = Response(render_template("portal.html", guardian=guardian, children=children, institution=inst,
+                                    fine_print=FINE_PRINT, fee_print=FEE_PRINT if any_fee else None, notice=notice,
+                                    token=token, can_pay=payments_enabled(current_app),
+                                    support_email=current_app.config.get("SUPPORT_EMAIL")))
+    return _portal_headers(resp)
+
+
+@bp.post("/p/<token>/pay")
+def portal_pay(token):
+    if _portal_rate_limited(_portal_client_ip()):
+        abort(429)
+    guardian, inst = _portal_guardian(token)
+    if not guardian:
+        return _portal_headers(Response(render_template("portal_missing.html"), status=404))
+    back = url_for("main.portal", token=token)
+    student = next((c for c in _repo().portal_children(inst["id"], guardian["id"])
+                    if str(c["id"]) == (request.form.get("student_id") or "")), None)
+    try:
+        lunches = int(request.form.get("lunches") or "")
+    except ValueError:
+        lunches = 0
+    if not student or lunches < 1:
+        flash("Choose how many lunches to pay for.", "error")
+        return redirect(back)
+    from .online import CheckoutError, start_checkout
+    link = current_app.config["PUBLIC_BASE_URL"] + back
+    try:
+        url = start_checkout(current_app, _repo(), inst, guardian, student, lunches, link)
+    except CheckoutError as e:
+        flash(str(e), "error")
+        return redirect(back)
+    return redirect(url, code=303)
+
+
+@bp.post("/stripe/webhook")
+def stripe_webhook():
+    from .stripe_client import WebhookSignatureError, verify_webhook
+    secret = current_app.config.get("STRIPE_WEBHOOK_SECRET")
+    if not secret or current_app.extensions.get("stripe") is None:
+        abort(404)
+    try:
+        event = verify_webhook(request.get_data(), request.headers.get("Stripe-Signature"), secret)
+    except WebhookSignatureError:
+        return Response("bad signature", status=400, mimetype="text/plain")
+    inst = g.institution
+    if not inst:
+        return Response("no institution", status=503, mimetype="text/plain")
+    if _repo().stripe_event_seen(event.get("id")):
+        return Response("duplicate", mimetype="text/plain")
+    from .online import handle_event
+    outcome = handle_event(current_app, _repo(), _mailer(), inst, event)     # raises -> 500 -> Stripe retries
+    _repo().log_stripe_event(event.get("id"), event.get("type", ""), outcome)
+    return Response(outcome, mimetype="text/plain")
+
+
+# ---------------------------------------------------------------- staff: online payments
+@bp.get("/payments/online")
+@require_role("viewer")
+def online_payments():
+    inst = _inst_or_redirect()
+    if not inst:
+        return redirect(url_for("main.dashboard"))
+    dash = "https://dashboard.stripe.com/" + ("test/" if current_app.config.get("STRIPE_MODE") == "test" else "")
+    return render_template("online_payments.html", rows=_repo().online_payments(inst["id"]), dash=dash)
+
+
+@bp.post("/payments/online/<uuid:intent_id>/resolved")
+@require_role("admin")
+def online_payment_resolved(intent_id):
+    inst = _inst_or_redirect()
+    if not inst:
+        return redirect(url_for("main.dashboard"))
+    n = _repo().clear_intent_attention(inst["id"], str(intent_id), g.staff["user_id"], g.staff["email"])
+    flash("Marked as handled." if n else "Nothing to clear.", "info")
+    return redirect(url_for("main.online_payments"))

@@ -59,7 +59,7 @@
         <td>{{ l.service_date|when }}</td>
         <td>{{ labels.get(l.classification, l.classification) }}{% if l.classification_note and l.classification != 'post_paid' %}<br><span class="muted small">{{ l.classification_note }}</span>{% endif %}</td>
         {% if l.classification == 'post_paid' %}
-        <td class="amount">{{ l.price_cents|dollars }}<br><span class="muted small">{{ l.rate_label }}{% if l.price_locked in (True, 't') %} · locked{% endif %}</span></td>
+        <td class="amount">{{ l.price_cents|dollars }}<br><span class="muted small">{% if l.fee_cents and l.fee_cents|int > 0 %}{{ l.meal_cents|dollars }} + {{ l.fee_cents|dollars }} fee · {% endif %}{{ l.rate_label }}{% if l.price_locked in (True, 't') %} · locked{% endif %}</span></td>
         <td class="amount">{{ l.allocated_cents|dollars }}</td>
         <td>{{ status_labels.get(l.status, l.status) }}{% if l.status == 'waived' %}<br><span class="muted small">{{ l.waive_reason }}</span>{% endif %}</td>
         <td>{% if role_at_least(g.staff.role, 'admin') and l.status != 'waived' %}
@@ -105,7 +105,7 @@
     <tbody>
     {% for p in payments %}
       <tr{% if p.reversed_reason %} class="reversed"{% endif %}>
-        <td>{{ p.received_at|when }}</td><td class="amount">{{ p.amount_cents|dollars }}</td><td>{{ p.method }}</td>
+        <td>{{ p.received_at|when }}</td><td class="amount">{{ p.amount_cents|dollars }}</td><td>{{ p.method|method_label }}</td>
         <td>{{ p.note or '' }}{% if p.reversed_reason %}<br><span class="warn">Reversed: {{ p.reversed_reason }}</span>{% endif %}</td>
         <td>{{ p.recorded_by_email or 'Online' }}</td>
         <td>{% if role_at_least(g.staff.role, 'admin') and not p.reversed_reason and p.recorded_by_email %}
@@ -115,7 +115,7 @@
               <label for="r-{{ loop.index }}">Reason</label>
               <input id="r-{{ loop.index }}" name="reason" type="text" required placeholder="e.g. entered twice, check bounced">
               <button class="primary small" type="submit">Reverse payment</button>
-            </form></details>{% endif %}</td>
+            </form></details>{% elif not p.recorded_by_email and not p.reversed_reason %}<span class="muted small">Refund in Stripe to undo</span>{% endif %}</td>
       </tr>
     {% endfor %}
     </tbody>

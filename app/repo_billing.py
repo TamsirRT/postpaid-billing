@@ -418,7 +418,7 @@ class BillingRepoMixin:
 
     # ================================================================ rates
     SQL_RATES = """
-        select r.id, r.starts_on, r.ends_on, r.price_cents, r.label, r.created_at,
+        select r.id, r.starts_on, r.ends_on, r.price_cents, r.fee_cents, r.label, r.created_at,
                (select count(*) from billing.check_in_billing cb
                  where cb.institution_id = r.institution_id and cb.classification = 'post_paid'
                    and cb.service_date between r.starts_on and r.ends_on) as lunches,
@@ -470,9 +470,9 @@ class BillingRepoMixin:
 
     SQL_ADD_PERIOD = """
         with ins as (
-            insert into billing.rate_periods (institution_id, starts_on, ends_on, price_cents, label, created_by)
-            values (%(iid)s, %(s)s, %(e)s, %(price)s, %(label)s, %(actor)s)
-            returning id, starts_on, ends_on, price_cents, label
+            insert into billing.rate_periods (institution_id, starts_on, ends_on, price_cents, fee_cents, label, created_by)
+            values (%(iid)s, %(s)s, %(e)s, %(price)s, %(fee)s, %(label)s, %(actor)s)
+            returning id, starts_on, ends_on, price_cents, fee_cents, label
         ),
         audit as (
             insert into billing.audit_log (institution_id, actor, actor_email, action, entity, entity_id, after)
@@ -490,9 +490,9 @@ class BillingRepoMixin:
     def find_overlapping_period(self, institution_id, starts_on, ends_on):
         return self.db.fetch_one(self.SQL_OVERLAPPING_PERIOD, {"iid": institution_id, "s": starts_on, "e": ends_on})
 
-    def add_rate_period(self, institution_id, starts_on, ends_on, price_cents, label, actor, actor_email):
+    def add_rate_period(self, institution_id, starts_on, ends_on, price_cents, label, actor, actor_email, fee_cents=None):
         return self.db.fetch_one(self.SQL_ADD_PERIOD, {
-            "iid": institution_id, "s": starts_on, "e": ends_on, "price": price_cents, "label": label,
+            "iid": institution_id, "s": starts_on, "e": ends_on, "price": price_cents, "fee": fee_cents, "label": label,
             "actor": actor, "actor_email": actor_email})
 
     SQL_DELETE_PERIOD = """
@@ -500,7 +500,7 @@ class BillingRepoMixin:
             delete from billing.rate_periods r
              where r.id = %(pid)s and r.institution_id = %(iid)s
                and not exists (select 1 from billing.check_in_billing cb where cb.locked_rate_period_id = r.id)
-            returning id, starts_on, ends_on, price_cents, label
+            returning id, starts_on, ends_on, price_cents, fee_cents, label
         ),
         audit as (
             insert into billing.audit_log (institution_id, actor, actor_email, action, entity, entity_id, before)
@@ -519,7 +519,7 @@ class BillingRepoMixin:
     SQL_STUDENT_LUNCHES = """
         select cb.check_in_id, cb.service_date, cb.classification, cb.classification_note,
                l.price_cents, l.rate_label, l.price_locked, l.allocated_cents, l.open_cents, l.status,
-               cb.waive_reason
+               cb.waive_reason, l.meal_cents, l.fee_cents
           from billing.check_in_billing cb
           left join billing.v_check_in_ledger l on l.check_in_id = cb.check_in_id
          where cb.institution_id = %(iid)s and cb.student_id = %(sid)s

@@ -21,6 +21,7 @@
       <a href="{{ url_for('main.missing_contacts') }}">Missing contacts</a>
       <a href="{{ url_for('main.statements') }}">Statements</a>
       <a href="{{ url_for('main.emails') }}">Emails</a>
+      <a href="{{ url_for('main.online_payments') }}">Online payments</a>
       {% endif %}
       {% if role_at_least(g.staff.role, 'super_admin') %}<a href="{{ url_for('main.staff_list') }}">Staff</a>{% endif %}
       <span class="who">{{ g.staff.email }}{% if g.staff.role %} · {{ g.staff.role|replace('_', ' ') }}{% endif %}</span>
