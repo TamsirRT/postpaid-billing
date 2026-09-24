@@ -9,7 +9,7 @@ The design lives in the spec doc **MealMode Postpaid Billing — System Spec v2*
 | 0 — Foundation: schema, staff sign-in and roles, dashboard shell, deploy config | **Done (this code)** |
 | 0.5 — Contacts: edit parent contacts, flag billed children with no email, school export | **Done (this code)** |
 | 1 — Orders import, check-in sorting, review queue, rates, waivers, offline payments, v1.4 comparison | **Done (this code)** |
-| 2 — Parent portal and manual statement sends | |
+| 2 — Parent portal, statements (approve-to-send), receipts, email test mode | **Done (this code)** |
 | 3 — Stripe (bank + card) | |
 | 4 — Scheduled cycles | |
 
@@ -23,6 +23,9 @@ migrations/003_contacts_and_checkin_fields.sql  phone-only contacts, no-lunch ch
 migrations/004_excluded_checkins_hardcoded_start.sql  'excluded' check-ins (bill_separately); start date moves to code
 migrations/005_default_price_and_allocation.sql  settable standard price ($7.90), apply_credit(), offline payments
 migrations/006_meal_increment_payments.sql   parents pay whole lunches, oldest first (v_payment_options + a guard on online payments)
+migrations/007_statements_and_portal.sql     full email log (mode, intended vs delivered address, content); portal link versions
+app/mailer.py                                SendGrid + the outbox/test/live safety switch
+app/notify.py, app/portal.py                 statements, receipts, parent portal links
 app/payments.py                              the parent payment-amount rule, for phase 3 checkout
 app/importer.py, app/names.py                orders CSV parsing; name matching ported from v1.4
 app/classify.py                              the sorting run: match orders, sort check-ins, late orders, credit
@@ -30,8 +33,9 @@ app/compare.py                               parallel run against a v1.4 to_invo
 app/billing_rules.py                         hard-coded billing start date and the check-in classification rules
 app/                                         Flask app: sign-in, roles, dashboard, students, contacts, CLI
 tests/test_app.py, tests/test_contacts.py    web layer with in-memory fakes
+tests/test_phase1.py, tests/test_phase2.py   end to end: real pages, real SQL, recording email backend
 tests/test_repo_sql.py                       the app's real SQL against real Postgres, with roster data shaped like the export
-tests/sql/test_*.sql                        98 checks that the database enforces the money and contact rules
+tests/sql/test_*.sql                        110 checks that the database enforces the money and contact rules
 tests/sql/stub_public.sql                    stand-ins for students / check_ins, column for column from the exports
 ```
 
@@ -108,7 +112,7 @@ After that, grant everyone else from the **Staff** page.
 
 ### 6. Railway
 
-New service → Deploy from GitHub repo. Set variables: `APP_ENV=production`, `SECRET_KEY` (48+ random characters), `DATABASE_URL`, `SUPABASE_URL`, `SUPABASE_ANON_KEY`, `INSTITUTION_SLUG=sacred-heart`. `railway.json` sets the gunicorn start command and a `/healthz` health check.
+New service → Deploy from GitHub repo. Set variables: `APP_ENV=production`, `SECRET_KEY` (48+ random characters), `DATABASE_URL`, `SUPABASE_URL`, `SUPABASE_ANON_KEY`, `INSTITUTION_SLUG=sacred-heart`, plus the email and portal variables below. After the first deploy, set `PUBLIC_BASE_URL` to the Railway URL (Settings → Networking → Generate domain) and redeploy. `railway.json` sets the gunicorn start command and a `/healthz` health check.
 
 Migrations are **not** run on deploy on purpose: a billing schema change should be applied by a person who has read it.
 
@@ -151,6 +155,31 @@ All 5 differences are check-ins with `getting_lunch = false`, which v1.4 billed 
 - If a price changes between a parent opening checkout and the payment landing (rare), the payment still applies oldest-first; the last lunch may end up part-paid, and the parent's next options start with its remainder.
 - Payments are never edited or deleted. A mistaken or bounced one is **reversed** from the student page (reason required): the lunches it paid become unpaid again, and the reversal stays on record.
 
+## Phase 2: statements, emails, parent page
+
+### Settings
+
+| Variable | Value |
+| --- | --- |
+| `EMAIL_MODE` | `outbox` (default: nothing is emailed, messages are stored under **Emails**), `test` (every email goes to `EMAIL_TEST_RECIPIENT`, never to parents), `live` (parents; must be set on purpose) |
+| `EMAIL_TEST_RECIPIENT` | `trichtoure@gmail.com` |
+| `SENDGRID_API_KEY` | SendGrid → Settings → API Keys, "Restricted: Mail Send" |
+| `EMAIL_FROM` | a sender verified in SendGrid (Single Sender or domain authentication) |
+| `EMAIL_FROM_NAME` | optional, default `MealMode` |
+| `SUPPORT_EMAIL` | optional; shown to parents as the contact for questions and offline payment |
+| `PORTAL_SECRET` | 32+ random characters. Signs parent links; **changing it breaks every link already emailed** |
+| `PUBLIC_BASE_URL` | where parents open the app, e.g. `https://xxx.up.railway.app`. Defaults to `http://127.0.0.1:5000` in development |
+
+The app refuses to start if `test`/`live` is missing its key, sender, or test inbox. The redirect to the test inbox happens inside the mailer, below every feature, so nothing can reach a parent unless the app was started with `EMAIL_MODE=live`. Every staff page shows a banner with the current mode.
+
+### Using it
+
+- **Statements**: every parent with an email who has a child owing, with totals. Filter by minimum owed. Admins tick "I've reviewed this list" and send; if the list changed since it was loaded, the send is refused. A parent who got a statement in the last 24 hours is skipped unless you tick the override.
+- **Contact page**: "Send statement now", "Open this parent's page" (exactly what they see), and for super admins "Replace their private link" (old links stop working).
+- **Receipts** go automatically to the child's parents when a payment is recorded (same mode rules).
+- **Emails**: every statement and receipt with the address it was meant for, where it actually went, status, and the exact content. Failed sends are kept with the error.
+- **Parent page** (`/p/<link>`, no sign-in): each child's balance, whole-lunch pay amounts (oldest first), every lunch (pre-ordered, post-paid with price and status, checked in without lunch), payments, and the fine print. Online payment arrives in phase 3; until then it points to `SUPPORT_EMAIL`. The link is the key, so the page is not indexed, not cached, sends no referrer, and is rate-limited. Only a hash of each link is stored.
+
 ## Contacts
 
 Parent contacts live in `billing.guardians`, not in the check-in app's `students` table, which billing never writes to.
@@ -161,14 +190,14 @@ Parent contacts live in `billing.guardians`, not in the check-in app's `students
 - **Missing contacts**: every child who owes money but can't be emailed, with the reason (no contact, phone only, opted out). **Download list for the school** gives a CSV with name, grade, homeroom, balance, and the problem, ready to send so the school can supply contacts.
 - **Import contacts from school roster** copies valid emails and phones from `students.email` / `students.phone`. Placeholders such as `redacted`, blanks, and malformed values are skipped; siblings with the same email get one shared contact. Safe to run again.
 
-Children without a usable email are simply **skipped** by statements. Nothing errors; they stay on the Missing contacts list until fixed. Statement sending (phase 2) must read only from `billing.v_statement_recipients`.
+Children without a usable email are simply **skipped** by statements. Nothing errors; they stay on the Missing contacts list until fixed. Statement sending reads only from `billing.v_statement_recipients`.
 
 ## Tests
 
 ```bash
 python -m unittest discover -s tests -t . -v                   # web layer; DB tests skip
 TEST_PG="host=localhost user=postgres" python -m unittest discover -s tests -t . -v
-PGHOST=localhost PGUSER=postgres scripts/test_sql.sh           # 98 schema checks
+PGHOST=localhost PGUSER=postgres scripts/test_sql.sh           # 110 schema checks
 ```
 
 The last two need a **local** Postgres 14+ you can create databases on. Never point them at Supabase.
@@ -180,6 +209,7 @@ These were built in an environment that couldn't install packages, so be aware:
 - `app/db.py` (the psycopg connection pool) has **never executed**. Every SQL statement it will run *has* been tested against Postgres 16 via `psql`, but the first real run of the Python-to-database path will be yours. Run `flask --app wsgi db status` before anything else.
 - Supabase Auth calls (`app/auth.py`) are tested against a fake, not the real service.
 - Migrations were tested on Postgres 16, not on Supabase itself.
+- SendGrid is tested with a stand-in that records messages. The first real send is yours: set `EMAIL_MODE=test`, send one statement from a contact page, and check the test inbox (and spam).
 
 ## Findings from the real exports (September 2026)
 

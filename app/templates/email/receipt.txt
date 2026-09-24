@@ -1,0 +1,11 @@
+Hello{% if guardian.name %} {{ guardian.name }}{% endif %},
+
+We received {{ p.amount_cents|dollars }} ({{ p.method }}) on {{ p.received_at|when }} for {{ p.first_name }} {{ p.last_name }}'s lunches at {{ institution.name }}.
+{% if covered %}
+It paid for:
+{% for c in covered %}  {{ c.service_date|when }}  {{ c.amount_cents|dollars }}
+{% endfor %}{% endif %}
+{% if p.balance_due_cents|int > 0 %}Remaining balance: {{ p.balance_due_cents|dollars }}{% elif p.balance_due_cents|int < 0 %}Credit toward future lunches: {{ (0 - p.balance_due_cents|int)|dollars }}{% else %}{{ p.first_name }}'s balance is fully paid.{% endif %}
+
+See every lunch and payment: {{ portal_url }}{% if support_email %}
+Questions? Email {{ support_email }}.{% endif %}

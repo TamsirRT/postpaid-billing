@@ -7,12 +7,13 @@ data-modifying CTE), so the change and its audit row commit or fail together.
 import json
 
 from .repo_billing import BillingRepoMixin
+from .repo_notify import NotifyRepoMixin
 
 ROLES = ("viewer", "admin", "super_admin")
 ROLE_RANK = {None: 0, "viewer": 1, "admin": 2, "super_admin": 3}
 
 
-class Repo(BillingRepoMixin):
+class Repo(BillingRepoMixin, NotifyRepoMixin):
     def __init__(self, db):
         self.db = db
 

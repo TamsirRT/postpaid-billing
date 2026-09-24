@@ -1,0 +1,14 @@
+Hello{% if guardian.name %} {{ guardian.name }}{% endif %},
+
+Here is the post-paid lunch balance at {{ institution.name }}. Post-paid lunches are lunches taken without a pre-order.
+{% for c in children %}
+{{ c.first_name }} {{ c.last_name }}: {{ c.balance_due_cents|dollars }}
+{% for l in c.lunches %}  {{ l.service_date|when }}  {{ l.rate_label }}{% if l.allocated_cents|int > 0 %} (part paid){% endif %}  {{ l.open_cents|dollars }}
+{% endfor %}{% endfor %}{% if children|length > 1 %}
+Total for all children: {{ total_cents|dollars }}
+{% endif %}
+See every lunch and payment: {{ portal_url }}
+This link is private to you. Please don't forward it.
+
+{{ fine_print }}{% if support_email %}
+Questions? Email {{ support_email }}.{% endif %}

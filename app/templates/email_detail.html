@@ -1,0 +1,14 @@
+{% extends "base.html" %}
+{% block title %}Email{% endblock %}
+{% block content %}
+<p><a href="{{ url_for('main.emails') }}">← Emails</a></p>
+<h1>{{ n.subject }}</h1>
+<dl class="facts">
+  <dt>Meant for</dt><dd>{{ n.guardian_name or '' }} &lt;{{ n.intended_email }}&gt;</dd>
+  <dt>Actually went to</dt><dd>{% if n.mode == 'outbox' %}Nobody (outbox){% else %}{{ n.delivered_to or '—' }}{% endif %} · {{ n.mode }} mode</dd>
+  <dt>Status</dt><dd>{{ n.status|capitalize }}{% if n.error %}: <span class="warn">{{ n.error }}</span>{% endif %}</dd>
+  <dt>Created</dt><dd>{{ n.created_at|when }}</dd>
+</dl>
+<iframe class="email-frame" src="{{ url_for('main.email_body', notification_id=n.id) }}" sandbox title="Email content"></iframe>
+<details><summary>Plain-text version</summary><pre class="email-text">{{ n.body_text }}</pre></details>
+{% endblock %}

@@ -9,6 +9,24 @@
 
 {% set can_edit = role_at_least(g.staff.role, 'admin') %}
 <section class="card">
+  <h2>Statement and parent page</h2>
+  <p><a href="{{ url_for('main.guardian_portal_preview', guardian_id=gd.id) }}" target="_blank" rel="noopener">Open this parent's page</a> <span class="muted">(what they see from the link in their emails)</span></p>
+  {% if can_edit %}
+  <form method="post" action="{{ url_for('main.guardian_send_statement', guardian_id=gd.id) }}" class="inline-block">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+    <button class="secondary" type="submit">Send statement now</button>
+    <label class="check"><input type="checkbox" name="override_recent"> Send even if one went out in the last 24 hours</label>
+  </form>
+  {% endif %}
+  {% if role_at_least(g.staff.role, 'super_admin') %}
+  <form method="post" action="{{ url_for('main.guardian_rotate_link', guardian_id=gd.id) }}" class="inline-block">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+    <button class="link-dark" type="submit">Replace their private link</button>
+    <span class="muted">Use if a link was forwarded to the wrong person. Old links stop working.</span>
+  </form>
+  {% endif %}
+</section>
+<section class="card">
   {% for e in errors %}<p class="flash flash-error" role="alert">{{ e }}</p>{% endfor %}
   <form method="post" action="{{ url_for('main.guardian_detail', guardian_id=gd.id) }}" class="grid-form">
     <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">

@@ -1,0 +1,28 @@
+<!doctype html>
+<html><body style="margin:0;padding:0;background:#f4f8f9;">
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#f4f8f9;"><tr><td align="center" style="padding:24px 12px;">
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:600px;background:#ffffff;border:1px solid #dde3e6;border-radius:8px;font-family:Arial,Helvetica,sans-serif;color:#1a1a1a;">
+  <tr><td style="background:#00728F;color:#ffffff;padding:16px 24px;border-radius:8px 8px 0 0;font-size:18px;font-weight:bold;">MealMode lunch balance</td></tr>
+  <tr><td style="padding:24px;font-size:15px;line-height:1.5;">
+    <p style="margin:0 0 12px;">Hello{% if guardian.name %} {{ guardian.name }}{% endif %},</p>
+    <p style="margin:0 0 20px;">Here is the post-paid lunch balance at {{ institution.name }}. Post-paid lunches are lunches taken without a pre-order.</p>
+    {% for c in children %}
+    <h2 style="font-size:17px;color:#00728F;margin:24px 0 8px;">{{ c.first_name }} {{ c.last_name }}: {{ c.balance_due_cents|dollars }}</h2>
+    <table role="presentation" width="100%" cellpadding="6" cellspacing="0" style="border-collapse:collapse;font-size:14px;">
+      <tr style="background:#f4f8f9;"><th align="left" style="border-bottom:1px solid #dde3e6;">Date</th><th align="left" style="border-bottom:1px solid #dde3e6;">Rate</th><th align="right" style="border-bottom:1px solid #dde3e6;">Owed</th></tr>
+      {% for l in c.lunches %}
+      <tr><td style="border-bottom:1px solid #eef1f2;">{{ l.service_date|when }}</td>
+          <td style="border-bottom:1px solid #eef1f2;">{{ l.rate_label }}{% if l.allocated_cents|int > 0 %} (part paid){% endif %}</td>
+          <td align="right" style="border-bottom:1px solid #eef1f2;">{{ l.open_cents|dollars }}</td></tr>
+      {% endfor %}
+    </table>
+    {% endfor %}
+    {% if children|length > 1 %}<p style="margin:20px 0 0;font-size:16px;"><strong>Total for all children: {{ total_cents|dollars }}</strong></p>{% endif %}
+    <p style="margin:28px 0;"><a href="{{ portal_url }}" style="background:#F05E43;color:#1a1a1a;text-decoration:none;font-weight:bold;padding:12px 20px;border-radius:6px;display:inline-block;">See every lunch and payment</a></p>
+    <p style="margin:0 0 8px;font-size:13px;color:#5b6770;">This link is private to you. Please don't forward it.</p>
+    <p style="margin:0 0 8px;font-size:13px;color:#5b6770;">{{ fine_print }}</p>
+    {% if support_email %}<p style="margin:0;font-size:13px;color:#5b6770;">Questions? Email <a href="mailto:{{ support_email }}" style="color:#00728F;">{{ support_email }}</a>.</p>{% endif %}
+  </td></tr>
+</table>
+</td></tr></table>
+</body></html>

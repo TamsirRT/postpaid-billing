@@ -577,6 +577,14 @@ def student_record_payment(student_id):
     left = cents - r["applied_cents"]
     flash(f"Recorded {format_cents(cents)} ({method}). {format_cents(r['applied_cents'])} applied to unpaid lunches, "
           f"oldest first" + (f"; {format_cents(left)} kept as credit for future lunches." if left else "."), "info")
+    from .notify import send_receipts
+    sent = send_receipts(current_app.config, _repo(), _mailer(), inst, str(r["payment_id"]), g.staff["user_id"])
+    if sent:
+        ok = sum(1 for x in sent if x["status"] == "sent")
+        flash(f"Receipt {'kept in the outbox' if _mailer().mode == 'outbox' else 'sent'} for {ok} contact(s)"
+              + (f"; {len(sent) - ok} failed (see Emails)." if ok < len(sent) else "."), "info" if ok == len(sent) else "error")
+    else:
+        flash("No receipt: nobody with an email is linked to this child.", "info")
     return redirect(url_for("main.student_detail", student_id=student_id))
 
 
@@ -599,3 +607,184 @@ def student_reverse_payment(student_id, payment_id):
     else:
         flash("That payment can't be reversed here (already reversed, or an online payment).", "error")
     return redirect(url_for("main.student_detail", student_id=student_id))
+
+
+# ================================================================ phase 2: statements, emails, portal
+def _mailer():
+    return current_app.extensions["mailer"]
+
+
+@bp.get("/statements")
+@require_role("viewer")
+def statements():
+    inst = _inst_or_redirect()
+    if not inst:
+        return redirect(url_for("main.dashboard"))
+    min_cents = _parse_dollars(request.args.get("min") or "0.01") or 1
+    rows = _repo().statement_candidates(inst["id"], _mailer().mode, min_cents)
+    missing = len(_repo().billed_without_contact(inst["id"]))
+    return render_template("statements.html", rows=rows, min_dollars=request.args.get("min") or "",
+                           missing=missing)
+
+
+@bp.post("/statements/send")
+@require_role("admin")
+def statements_send():
+    inst = _inst_or_redirect()
+    if not inst:
+        return redirect(url_for("main.dashboard"))
+    if request.form.get("confirm") != "yes":
+        flash("Tick the box to confirm you've reviewed the list.", "error")
+        return redirect(url_for("main.statements", min=request.form.get("min") or None))
+    min_cents = _parse_dollars(request.form.get("min") or "0.01") or 1
+    ids = [str(r["guardian_id"]) for r in _repo().statement_candidates(inst["id"], _mailer().mode, min_cents)]
+    expected = request.form.get("expected_count")
+    if expected is not None and expected != str(len(ids)):
+        flash("The list changed since you loaded it. Review it again before sending.", "error")
+        return redirect(url_for("main.statements", min=request.form.get("min") or None))
+    from .notify import send_statements
+    r = send_statements(current_app.config, _repo(), _mailer(), inst, ids, g.staff["user_id"],
+                        override_recent=request.form.get("override_recent") == "on")
+    _repo().audit(inst["id"], g.staff["user_id"], g.staff["email"], "send_statements", "notifications",
+                  after={k: v for k, v in r.items() if k != "first_error"} | {"mode": _mailer().mode})
+    where = {"outbox": "kept in the outbox (not emailed)", "test": f"emailed to the test inbox {_mailer().test_recipient}",
+             "live": "emailed to parents"}[_mailer().mode]
+    msg = f"{r['sent']} statement(s) {where}."
+    if r["skipped_recent"]:
+        msg += f" {r['skipped_recent']} skipped: already sent one in the last 24 hours."
+    if r["skipped_other"]:
+        msg += f" {r['skipped_other']} skipped: nothing owed or no email."
+    flash(msg, "info")
+    if r["failed"]:
+        flash(f"{r['failed']} failed to send. First error: {r['first_error']}", "error")
+    return redirect(url_for("main.emails"))
+
+
+@bp.post("/guardians/<uuid:guardian_id>/statement")
+@require_role("admin")
+def guardian_send_statement(guardian_id):
+    inst = _inst_or_redirect()
+    if not inst:
+        return redirect(url_for("main.dashboard"))
+    from .notify import send_statement
+    r = send_statement(current_app.config, _repo(), _mailer(), inst, str(guardian_id), g.staff["user_id"],
+                       override_recent=request.form.get("override_recent") == "on")
+    if r["status"] == "sent":
+        flash({"outbox": "Statement created and kept in the outbox (not emailed).",
+               "test": f"Statement emailed to the test inbox {_mailer().test_recipient}.",
+               "live": "Statement emailed."}[_mailer().mode], "info")
+    elif r["status"] == "failed":
+        flash(f"Sending failed: {r['error']}", "error")
+    else:
+        flash(f"Not sent: {r['reason']}.", "error")
+    return redirect(_safe_next(request.form.get("back")) if request.form.get("back")
+                    else url_for("main.guardian_detail", guardian_id=guardian_id))
+
+
+@bp.get("/guardians/<uuid:guardian_id>/portal")
+@require_role("viewer")
+def guardian_portal_preview(guardian_id):
+    inst = _inst_or_redirect()
+    if not inst:
+        return redirect(url_for("main.dashboard"))
+    guardian = _repo().statement_guardian(inst["id"], str(guardian_id))
+    if not guardian:
+        abort(404)
+    from .notify import portal_url
+    url = portal_url(current_app.config, _repo(), inst, guardian)
+    return redirect("/p/" + url.rsplit("/p/", 1)[1])
+
+
+@bp.post("/guardians/<uuid:guardian_id>/rotate-link")
+@require_role("super_admin")
+def guardian_rotate_link(guardian_id):
+    inst = _inst_or_redirect()
+    if not inst:
+        return redirect(url_for("main.dashboard"))
+    from .portal import portal_token, token_hash_hex
+    version = _repo().guardian_token_version(inst["id"], str(guardian_id))
+    if version is None:
+        abort(404)
+    new_hash = token_hash_hex(portal_token(current_app.config["PORTAL_SECRET"], str(guardian_id), version + 1))
+    n = _repo().rotate_portal_token(inst["id"], str(guardian_id), version, new_hash, g.staff["user_id"], g.staff["email"])
+    flash("New link created. Every link in earlier emails has stopped working; send a statement to give them the new one."
+          if n else "Couldn't rotate the link. Try again.", "info" if n else "error")
+    return redirect(url_for("main.guardian_detail", guardian_id=guardian_id))
+
+
+@bp.get("/emails")
+@require_role("viewer")
+def emails():
+    inst = _inst_or_redirect()
+    if not inst:
+        return redirect(url_for("main.dashboard"))
+    return render_template("emails.html", rows=_repo().list_notifications(inst["id"]))
+
+
+@bp.get("/emails/<uuid:notification_id>")
+@require_role("viewer")
+def email_detail(notification_id):
+    inst = _inst_or_redirect()
+    if not inst:
+        return redirect(url_for("main.dashboard"))
+    n = _repo().get_notification(inst["id"], str(notification_id))
+    if not n:
+        abort(404)
+    return render_template("email_detail.html", n=n)
+
+
+@bp.get("/emails/<uuid:notification_id>/body")
+@require_role("viewer")
+def email_body(notification_id):
+    """The stored HTML exactly as sent, shown in a locked-down frame (inline styles, no scripts)."""
+    inst = _inst_or_redirect()
+    if not inst:
+        abort(404)
+    n = _repo().get_notification(inst["id"], str(notification_id))
+    if not n:
+        abort(404)
+    resp = Response(n["body_html"] or "", mimetype="text/html")
+    resp.headers["Content-Security-Policy"] = ("default-src 'none'; style-src 'unsafe-inline'; img-src data:; "
+                                               "frame-ancestors 'self'; sandbox")
+    resp.headers["X-Frame-Options"] = "SAMEORIGIN"
+    return resp
+
+
+# ---------------------------------------------------------------- the parent portal (no sign-in)
+_portal_hits = {}
+
+
+def _portal_rate_limited(ip, limit=60, window=60):
+    import time
+    now = time.monotonic()
+    hits = [t for t in _portal_hits.get(ip, []) if now - t < window]
+    hits.append(now)
+    _portal_hits[ip] = hits
+    if len(_portal_hits) > 10000:
+        _portal_hits.clear()
+    return len(hits) > limit
+
+
+@bp.get("/p/<token>")
+def portal(token):
+    from .portal import looks_like_token, token_hash_hex
+    if _portal_rate_limited(request.headers.get("X-Forwarded-For", request.remote_addr or "?").split(",")[0].strip()):
+        abort(429)
+    guardian = _repo().guardian_by_token_hash(token_hash_hex(token)) if looks_like_token(token) else None
+    inst = g.institution
+    if not guardian or not inst or str(guardian["institution_id"]) != str(inst["id"]):
+        resp = Response(render_template("portal_missing.html"), status=404)
+    else:
+        children = _repo().portal_children(inst["id"], guardian["id"])
+        for c in children:
+            sid = str(c["id"])
+            c["pay_options"] = _repo().payment_options(inst["id"], sid)
+            c["lunches"] = _repo().portal_lunches(inst["id"], sid)
+            c["payments"] = _repo().portal_payments(inst["id"], sid)
+        from .notify import FINE_PRINT
+        resp = Response(render_template("portal.html", guardian=guardian, children=children, institution=inst,
+                                        fine_print=FINE_PRINT, support_email=current_app.config.get("SUPPORT_EMAIL")))
+    resp.headers["Referrer-Policy"] = "no-referrer"
+    resp.headers["Cache-Control"] = "no-store"
+    resp.headers["X-Robots-Tag"] = "noindex, nofollow"
+    return resp

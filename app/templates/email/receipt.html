@@ -1,0 +1,21 @@
+<!doctype html>
+<html><body style="margin:0;padding:0;background:#f4f8f9;">
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#f4f8f9;"><tr><td align="center" style="padding:24px 12px;">
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:600px;background:#ffffff;border:1px solid #dde3e6;border-radius:8px;font-family:Arial,Helvetica,sans-serif;color:#1a1a1a;">
+  <tr><td style="background:#00728F;color:#ffffff;padding:16px 24px;border-radius:8px 8px 0 0;font-size:18px;font-weight:bold;">Payment received</td></tr>
+  <tr><td style="padding:24px;font-size:15px;line-height:1.5;">
+    <p style="margin:0 0 12px;">Hello{% if guardian.name %} {{ guardian.name }}{% endif %},</p>
+    <p style="margin:0 0 16px;">We received <strong>{{ p.amount_cents|dollars }}</strong> ({{ p.method }}) on {{ p.received_at|when }} for {{ p.first_name }} {{ p.last_name }}'s lunches at {{ institution.name }}.</p>
+    {% if covered %}
+    <p style="margin:0 0 6px;">It paid for:</p>
+    <table role="presentation" width="100%" cellpadding="6" cellspacing="0" style="border-collapse:collapse;font-size:14px;">
+      {% for c in covered %}<tr><td style="border-bottom:1px solid #eef1f2;">{{ c.service_date|when }}</td><td align="right" style="border-bottom:1px solid #eef1f2;">{{ c.amount_cents|dollars }}</td></tr>{% endfor %}
+    </table>
+    {% endif %}
+    <p style="margin:16px 0 0;">{% if p.balance_due_cents|int > 0 %}Remaining balance: <strong>{{ p.balance_due_cents|dollars }}</strong>{% elif p.balance_due_cents|int < 0 %}Credit toward future lunches: <strong>{{ (0 - p.balance_due_cents|int)|dollars }}</strong>{% else %}{{ p.first_name }}'s balance is fully paid.{% endif %}</p>
+    <p style="margin:24px 0;"><a href="{{ portal_url }}" style="color:#00728F;font-weight:bold;">See every lunch and payment</a></p>
+    {% if support_email %}<p style="margin:0;font-size:13px;color:#5b6770;">Questions? Email <a href="mailto:{{ support_email }}" style="color:#00728F;">{{ support_email }}</a>.</p>{% endif %}
+  </td></tr>
+</table>
+</td></tr></table>
+</body></html>

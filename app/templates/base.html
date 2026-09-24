@@ -19,6 +19,8 @@
       <a href="{{ url_for('main.review') }}">Review</a>
       <a href="{{ url_for('main.rates') }}">Rates</a>
       <a href="{{ url_for('main.missing_contacts') }}">Missing contacts</a>
+      <a href="{{ url_for('main.statements') }}">Statements</a>
+      <a href="{{ url_for('main.emails') }}">Emails</a>
       {% endif %}
       {% if role_at_least(g.staff.role, 'super_admin') %}<a href="{{ url_for('main.staff_list') }}">Staff</a>{% endif %}
       <span class="who">{{ g.staff.email }}{% if g.staff.role %} · {{ g.staff.role|replace('_', ' ') }}{% endif %}</span>
@@ -29,6 +31,13 @@
     </nav>
     {% endif %}
   </header>
+  {% if g.get('staff') and g.staff.role %}
+  <div class="mode-banner mode-{{ email_mode() }}" role="note">
+    {% if email_mode() == 'outbox' %}Email is OFF: messages are kept in the app under Emails, nobody is emailed.
+    {% elif email_mode() == 'test' %}TEST MODE: every email goes to {{ email_test_recipient() }}, never to parents.
+    {% else %}LIVE: emails go to parents.{% endif %}
+  </div>
+  {% endif %}
   <main>
     {% with messages = get_flashed_messages(with_categories=true) %}
       {% for cat, msg in messages %}<p class="flash flash-{{ cat }}" role="status">{{ msg }}</p>{% endfor %}

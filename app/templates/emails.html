@@ -1,0 +1,23 @@
+{% extends "base.html" %}
+{% block title %}Emails{% endblock %}
+{% block content %}
+<h1>Emails</h1>
+<p class="muted">Every statement and receipt, including test and outbox ones, with exactly what was sent. Newest first.</p>
+<div class="table-wrap"><table>
+  <thead><tr><th scope="col">Created</th><th scope="col">Type</th><th scope="col">For</th><th scope="col">Went to</th><th scope="col">Status</th><th scope="col">Subject</th></tr></thead>
+  <tbody>
+  {% for n in rows %}
+    <tr>
+      <td>{{ n.created_at|when }}</td>
+      <td>{{ {'receipt': 'Receipt', 'manual_individual': 'Statement', 'manual_global': 'Statement', 'statement': 'Statement'}.get(n.kind, n.kind) }}</td>
+      <td>{{ n.guardian_name or '' }}<br><span class="muted small">{{ n.intended_email }}</span></td>
+      <td>{% if n.mode == 'outbox' %}<span class="muted">Not emailed (outbox)</span>{% else %}{{ n.delivered_to or '—' }}{% if n.mode == 'test' %} <span class="tag tag-test">test</span>{% endif %}{% endif %}</td>
+      <td>{% if n.status == 'failed' %}<span class="warn">Failed</span>{% else %}{{ n.status|capitalize }}{% endif %}</td>
+      <td><a href="{{ url_for('main.email_detail', notification_id=n.id) }}">{{ n.subject }}</a></td>
+    </tr>
+  {% else %}
+    <tr><td colspan="6" class="muted">No emails yet.</td></tr>
+  {% endfor %}
+  </tbody>
+</table></div>
+{% endblock %}

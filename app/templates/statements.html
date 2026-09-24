@@ -1,0 +1,37 @@
+{% extends "base.html" %}
+{% block title %}Statements{% endblock %}
+{% block content %}
+<h1>Statements</h1>
+<p>One email per parent, covering every child of theirs who owes money, with a link to their private page. {% if missing %}<a href="{{ url_for('main.missing_contacts') }}">{{ missing }} child{{ '' if missing == 1 else 'ren' }}</a> owe money but have no parent who can be emailed (no contact, no email, or emails turned off) and are skipped.{% endif %}</p>
+<form method="get" action="{{ url_for('main.statements') }}" class="filters">
+  <label for="min">Only parents owing at least $</label>
+  <input id="min" name="min" type="text" inputmode="decimal" value="{{ min_dollars }}" placeholder="0.01" class="note" style="min-width:90px;width:90px">
+  <button class="primary small" type="submit">Filter</button>
+</form>
+{% set total = rows|map(attribute='total_due_cents')|map('int')|sum %}
+<p><strong>{{ rows|length }}</strong> parent{{ '' if rows|length == 1 else 's' }}, <strong>{{ total|dollars }}</strong> in total.</p>
+<div class="table-wrap"><table>
+  <thead><tr><th scope="col">Parent</th><th scope="col">Email</th><th scope="col" class="amount">Children owing</th><th scope="col" class="amount">Owed</th><th scope="col">Last statement ({{ email_mode() }})</th></tr></thead>
+  <tbody>
+  {% for r in rows %}
+    <tr><td><a href="{{ url_for('main.guardian_detail', guardian_id=r.guardian_id, back=request.full_path) }}">{{ r.guardian_name or '(no name)' }}</a></td><td>{{ r.email }}</td>
+        <td class="amount">{{ r.children_owing }}</td><td class="amount">{{ r.total_due_cents|dollars }}</td><td>{{ r.last_statement_at|when }}</td></tr>
+  {% else %}
+    <tr><td colspan="5" class="muted">Nobody to send to. Parents need an email on file and a child who owes money.</td></tr>
+  {% endfor %}
+  </tbody>
+</table></div>
+{% if rows and role_at_least(g.staff.role, 'admin') %}
+<section class="card">
+  <h2>Send to everyone above</h2>
+  <form method="post" action="{{ url_for('main.statements_send') }}">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+    <input type="hidden" name="min" value="{{ min_dollars }}">
+    <input type="hidden" name="expected_count" value="{{ rows|length }}">
+    <label class="check"><input type="checkbox" name="confirm" value="yes" required> I've reviewed this list of {{ rows|length }} parent{{ '' if rows|length == 1 else 's' }}</label>
+    <label class="check"><input type="checkbox" name="override_recent"> Include parents who got a statement in the last 24 hours</label>
+    <button class="primary" type="submit">{% if email_mode() == 'live' %}Email {{ rows|length }} parents{% elif email_mode() == 'test' %}Send {{ rows|length }} to the test inbox{% else %}Create {{ rows|length }} in the outbox{% endif %}</button>
+  </form>
+</section>
+{% endif %}
+{% endblock %}

@@ -64,3 +64,18 @@ details button.primary.small { margin:0; justify-self:start; }
 tr.reversed td { color:var(--muted); text-decoration:line-through; }
 tr.reversed td .warn { text-decoration:none; display:inline-block; }
 .review-item h2 { margin-top:0; }
+/* phase 2 */
+.mode-banner { padding:8px 24px; font-weight:600; font-size:14px; border-bottom:1px solid var(--line); }
+.mode-outbox { background:#eef1f2; color:#1a1a1a; }
+.mode-test { background:#fff4d6; color:#1a1a1a; border-bottom-color:#c98a00; }
+.mode-live { background:#fdecea; color:#8a1c14; border-bottom-color:#b3261e; }
+.tag { display:inline-block; font-size:12px; padding:1px 6px; border-radius:4px; font-weight:600; }
+.tag-test { background:#fff4d6; color:#1a1a1a; border:1px solid #c98a00; }
+.email-frame { width:100%; height:760px; border:1px solid var(--line); border-radius:8px; background:#fff; margin:12px 0; }
+pre.email-text { white-space:pre-wrap; background:var(--soft); padding:12px; border-radius:6px; font-size:13px; }
+.portal main { max-width:720px; }
+.pay-list { list-style:none; padding:0; margin:8px 0; border:1px solid var(--line); border-radius:8px; background:#fff; }
+.pay-list li { display:flex; justify-content:space-between; gap:12px; padding:10px 14px; border-bottom:1px solid var(--line); }
+.pay-list li:last-child { border-bottom:0; }
+.notice { background:#fff; border-left:4px solid var(--teal); padding:10px 14px; }
+ul.plain { padding-left:18px; }

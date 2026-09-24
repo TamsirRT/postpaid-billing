@@ -7,7 +7,7 @@ from .db import Database
 from .repo import Repo, role_at_least
 
 
-def create_app(overrides=None, repo=None, auth=None):
+def create_app(overrides=None, repo=None, auth=None, mailer=None):
     app = Flask(__name__)
     app.config.update(load_config(overrides))
 
@@ -15,8 +15,12 @@ def create_app(overrides=None, repo=None, auth=None):
         repo = Repo(Database(app.config["DATABASE_URL"]))
     if auth is None:
         auth = SupabaseAuth(app.config["SUPABASE_URL"], app.config["SUPABASE_ANON_KEY"])
+    if mailer is None:
+        from .mailer import mailer_from_config
+        mailer = mailer_from_config(app.config)
     app.extensions["repo"] = repo
     app.extensions["auth"] = auth
+    app.extensions["mailer"] = mailer
 
     @app.before_request
     def _before():
@@ -43,10 +47,12 @@ def create_app(overrides=None, repo=None, auth=None):
 
     app.jinja_env.globals["csrf_token"] = csrf_token
     app.jinja_env.globals["role_at_least"] = role_at_least
+    app.jinja_env.globals["email_mode"] = lambda: app.extensions["mailer"].mode
+    app.jinja_env.globals["email_test_recipient"] = lambda: app.extensions["mailer"].test_recipient
     app.jinja_env.filters["dollars"] = format_cents
     app.jinja_env.filters["when"] = format_when
 
-    for code in (400, 403, 404, 500):
+    for code in (400, 403, 404, 429, 500):
         app.register_error_handler(code, _error_page(code))
 
     from .views import bp
@@ -87,7 +93,8 @@ def format_when(value, tz="America/New_York"):
 
 
 def _error_page(code):
-    titles = {400: "Bad request", 403: "No access", 404: "Not found", 500: "Something went wrong"}
+    titles = {400: "Bad request", 403: "No access", 404: "Not found", 429: "Too many requests",
+              500: "Something went wrong"}
 
     def handler(err):
         description = getattr(err, "description", None) if code != 500 else None

@@ -197,9 +197,11 @@ class HelperTests(unittest.TestCase):
 
     def test_production_cookies_are_secure(self):
         env = {"APP_ENV": "production", "SECRET_KEY": "x" * 40, "DATABASE_URL": "postgresql://x",
-               "SUPABASE_URL": "https://x.supabase.co/", "SUPABASE_ANON_KEY": "k"}
+               "SUPABASE_URL": "https://x.supabase.co/", "SUPABASE_ANON_KEY": "k",
+               "PORTAL_SECRET": "p" * 40, "PUBLIC_BASE_URL": "https://billing.example.org/"}
         with mock.patch.dict(os.environ, env, clear=True):
             cfg = load_config()
+        self.assertEqual(cfg["PUBLIC_BASE_URL"], "https://billing.example.org")
         self.assertTrue(cfg["SESSION_COOKIE_SECURE"])
         self.assertEqual(cfg["SUPABASE_URL"], "https://x.supabase.co")
 

@@ -1,0 +1,68 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="robots" content="noindex, nofollow">
+  <title>Lunch account · MealMode</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='app.css') }}">
+</head>
+<body class="portal">
+  <header class="topbar"><span class="brand">MealMode <span>{{ institution.name }}</span></span></header>
+  <main>
+    <h1>Lunch account{% if guardian.name %} for {{ guardian.name }}{% endif %}</h1>
+    <p class="muted">Post-paid lunches are lunches taken without a pre-order. This page is private to you; please don't share the link.</p>
+    {% for c in children %}
+    <section class="card">
+      <h2>{{ c.first_name }} {{ c.last_name }}</h2>
+      {% if c.balance_due_cents|int > 0 %}
+        <p class="big">{{ c.balance_due_cents|dollars }} <span class="muted small">owed</span></p>
+        <h3>Pay for lunches</h3>
+        <p class="muted small">Payments cover whole lunches, oldest first.</p>
+        <ul class="pay-list">
+          {% for o in c.pay_options %}<li><span>{{ o.lunches }} lunch{{ '' if o.lunches|int == 1 else 'es' }} <span class="muted small">through {{ o.service_date|when }}</span></span><strong>{{ o.amount_cents|dollars }}</strong></li>{% endfor %}
+        </ul>
+        <p class="notice">Online payment is coming soon.{% if support_email %} To pay now, contact <a href="mailto:{{ support_email }}">{{ support_email }}</a>.{% endif %}</p>
+      {% elif c.credit_cents|int > 0 %}
+        <p class="big">{{ c.credit_cents|dollars }} <span class="muted small">credit toward future lunches</span></p>
+      {% else %}
+        <p class="big">$0.00 <span class="muted small">nothing owed</span></p>
+      {% endif %}
+
+      <h3>Lunches</h3>
+      {% if c.lunches %}
+      <div class="table-wrap"><table>
+        <thead><tr><th scope="col">Date</th><th scope="col">Lunch</th><th scope="col" class="amount">Price</th><th scope="col">Status</th></tr></thead>
+        <tbody>
+        {% for l in c.lunches %}
+          <tr><td>{{ l.service_date|when }}</td>
+            {% if l.classification == 'post_paid' %}
+              <td>Post-paid<br><span class="muted small">{{ l.rate_label }}</span></td>
+              <td class="amount">{% if l.status == 'waived' %}<s>{{ l.price_cents|dollars }}</s>{% else %}{{ l.price_cents|dollars }}{% endif %}</td>
+              <td>{{ {'open': 'Unpaid', 'partial': 'Part paid (' ~ (l.allocated_cents|dollars) ~ ')', 'paid': 'Paid', 'waived': 'No charge'}.get(l.status, l.status) }}</td>
+            {% elif l.classification == 'pre_ordered' %}
+              <td>Pre-ordered</td><td class="amount muted">—</td><td class="muted">Paid when ordered</td>
+            {% else %}
+              <td>Checked in, no lunch</td><td class="amount muted">—</td><td class="muted">No charge</td>
+            {% endif %}
+          </tr>
+        {% endfor %}
+        </tbody>
+      </table></div>
+      {% else %}<p class="muted">No lunches yet this year.</p>{% endif %}
+
+      <h3>Payments</h3>
+      {% if c.payments %}
+      <ul class="plain">
+        {% for p in c.payments %}<li>{% if p.reversed in (True, 't') %}<s>{{ p.amount_cents|dollars }}</s> reversed{% else %}{{ p.amount_cents|dollars }}{% endif %} · {{ p.method }} · {{ p.received_at|when }}</li>{% endfor %}
+      </ul>
+      {% else %}<p class="muted">No payments yet.</p>{% endif %}
+    </section>
+    {% else %}
+    <p>No children are linked to this account yet.</p>
+    {% endfor %}
+    <p class="muted small">{{ fine_print }}</p>
+    {% if support_email %}<p class="muted small">Questions? Email <a href="mailto:{{ support_email }}">{{ support_email }}</a>.</p>{% endif %}
+  </main>
+</body>
+</html>
