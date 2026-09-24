@@ -6,6 +6,7 @@ implementation with the same three methods.
 
 Queries use psycopg's named placeholders: %(name)s.
 """
+import atexit
 
 
 class Database:
@@ -28,6 +29,8 @@ class Database:
                 kwargs={"row_factory": dict_row, "autocommit": False},
                 open=True,
             )
+            # Close cleanly at exit, so CLI commands don't hang waiting on pool worker threads.
+            atexit.register(self.close)
         return self._pool
 
     def fetch_all(self, sql, params=None):
@@ -57,3 +60,4 @@ class Database:
     def close(self):
         if self._pool is not None:
             self._pool.close()
+            self._pool = None
