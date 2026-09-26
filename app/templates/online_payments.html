@@ -17,7 +17,7 @@
       <td>{{ r.created_at|when }}</td>
       <td><a href="{{ url_for('main.student_detail', student_id=r.student_id) }}">{{ r.first_name }} {{ r.last_name }}</a></td>
       <td>{{ r.guardian_name or '' }}</td>
-      <td class="amount">{{ r.amount_cents|dollars }}<br><span class="muted small">{{ r.lunches }} lunch{{ '' if r.lunches|int == 1 else 'es' }}</span></td>
+      <td class="amount">{{ r.amount_cents|dollars }}{% if r.tax_cents|int > 0 %}<br><span class="muted small">+ {{ r.tax_cents|dollars }} tax</span>{% endif %}<br><span class="muted small">{{ r.lunches }} lunch{{ '' if r.lunches|int == 1 else 'es' }}</span></td>
       <td>{{ r.method|method_label if r.method else '—' }}</td>
       <td>{% if r.reversed in (True, 't') %}<span class="warn">Reversed</span>{% if r.disputed_at %} (disputed){% elif r.refunded_cents|int >= r.amount_cents|int %} (refunded){% endif %}{% else %}{{ labels.get(r.status, r.status) }}{% if r.refunded_cents|int %} ({{ r.refunded_cents|dollars }} refunded){% endif %}{% endif %}
           {% if r.failure_reason and r.status in ('failed',) %}<br><span class="muted small">{{ r.failure_reason }}</span>{% endif %}

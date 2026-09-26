@@ -105,7 +105,7 @@
     <tbody>
     {% for p in payments %}
       <tr{% if p.reversed_reason %} class="reversed"{% endif %}>
-        <td>{{ p.received_at|when }}</td><td class="amount">{{ p.amount_cents|dollars }}</td><td>{{ p.method|method_label }}</td>
+        <td>{{ p.received_at|when }}</td><td class="amount">{{ p.amount_cents|dollars }}{% if p.tax_cents and p.tax_cents|int > 0 %}<br><span class="muted small">+ {{ p.tax_cents|dollars }} tax</span>{% endif %}</td><td>{{ p.method|method_label }}</td>
         <td>{{ p.note or '' }}{% if p.reversed_reason %}<br><span class="warn">Reversed: {{ p.reversed_reason }}</span>{% endif %}</td>
         <td>{{ p.recorded_by_email or 'Online' }}</td>
         <td>{% if role_at_least(g.staff.role, 'admin') and not p.reversed_reason and p.recorded_by_email %}

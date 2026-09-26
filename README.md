@@ -28,6 +28,7 @@ app/mailer.py                                SendGrid + the outbox/test/live saf
 app/notify.py, app/portal.py                 statements, receipts, parent portal links
 migrations/008_fee_line_and_stripe.sql       processing fee on top of the meal price (locks with it); Stripe event log; record_stripe_payment()
 app/online.py, app/stripe_client.py          Stripe Checkout, webhook handling, signature checks
+migrations/009_stripe_tax.sql                sales tax collected by Stripe Tax, kept beside each payment
 app/payments.py                              the parent payment-amount rule, for phase 3 checkout
 app/importer.py, app/names.py                orders CSV parsing; name matching ported from v1.4
 app/classify.py                              the sorting run: match orders, sort check-ins, late orders, credit
@@ -37,7 +38,7 @@ app/                                         Flask app: sign-in, roles, dashboar
 tests/test_app.py, tests/test_contacts.py    web layer with in-memory fakes
 tests/test_phase1-3.py                       end to end: real pages, real SQL, recording email backend, fake Stripe
 tests/test_repo_sql.py                       the app's real SQL against real Postgres, with roster data shaped like the export
-tests/sql/test_*.sql                        129 checks that the database enforces the money and contact rules
+tests/sql/test_*.sql                        133 checks that the database enforces the money and contact rules
 tests/sql/stub_public.sql                    stand-ins for students / check_ins, column for column from the exports
 ```
 
@@ -204,6 +205,20 @@ Going live later: repeat steps 2–4 with live-mode keys and a live-mode webhook
 - **Disputes and bank returns:** the payment is reversed automatically and flagged. If you win the dispute, it's flagged again so you can re-record the money.
 - **Online payments** (staff) lists every attempt with status, what needs attention, and a link to it in Stripe.
 
+### Sales tax (Stripe Tax, optional)
+Off by default. When on, Stripe adds sales tax at checkout, based on the payer's address, on top of the lunch amount.
+- **Online payments only.** Cash and check payments recorded by staff carry no tax.
+- **Kept apart from lunches.** The tax is stored beside the payment and shown on receipts, the parent page, the student page and Online payments. Only the lunch amount is applied to lunches.
+- **Refunds.** A full refund in Stripe (tax included) reverses the payment as usual.
+
+To turn it on:
+1. Set up tax in Stripe: Settings → Tax. Add the business address and your Maryland registration.
+2. Pick a product tax code for the lunches.
+3. In Railway, set `STRIPE_AUTOMATIC_TAX=true`, plus `STRIPE_TAX_CODE=txcd_...` for the code you picked.
+4. Run `flask --app wsgi db migrate` to apply 009.
+
+Turn it on only after step 1, or Stripe refuses to open checkout. Stripe charges its own fee for Stripe Tax.
+
 ## Contacts
 
 Parent contacts live in `billing.guardians`, not in the check-in app's `students` table, which billing never writes to.
@@ -221,7 +236,7 @@ Children without a usable email are simply **skipped** by statements. Nothing er
 ```bash
 python -m unittest discover -s tests -t . -v                   # web layer; DB tests skip
 TEST_PG="host=localhost user=postgres" python -m unittest discover -s tests -t . -v
-PGHOST=localhost PGUSER=postgres scripts/test_sql.sh           # 129 schema checks
+PGHOST=localhost PGUSER=postgres scripts/test_sql.sh           # 133 schema checks
 ```
 
 The last two need a **local** Postgres 14+ you can create databases on. Never point them at Supabase.

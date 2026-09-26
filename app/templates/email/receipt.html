@@ -5,7 +5,7 @@
   <tr><td style="background:#00728F;color:#ffffff;padding:16px 24px;border-radius:8px 8px 0 0;font-size:18px;font-weight:bold;">Payment received</td></tr>
   <tr><td style="padding:24px;font-size:15px;line-height:1.5;">
     <p style="margin:0 0 12px;">Hello{% if guardian.name %} {{ guardian.name }}{% endif %},</p>
-    <p style="margin:0 0 16px;">We received <strong>{{ p.amount_cents|dollars }}</strong> ({{ p.method|method_label }}) on {{ p.received_at|when }} for {{ p.first_name }} {{ p.last_name }}'s lunches at {{ institution.name }}.</p>
+    <p style="margin:0 0 16px;">We received <strong>{{ p.amount_cents|dollars }}</strong>{% if p.tax_cents|int > 0 %} plus {{ p.tax_cents|dollars }} sales tax ({{ (p.amount_cents|int + p.tax_cents|int)|dollars }} charged){% endif %} ({{ p.method|method_label }}) on {{ p.received_at|when }} for {{ p.first_name }} {{ p.last_name }}'s lunches at {{ institution.name }}.</p>
     {% if covered %}
     <p style="margin:0 0 6px;">It paid for:</p>
     <table role="presentation" width="100%" cellpadding="6" cellspacing="0" style="border-collapse:collapse;font-size:14px;">

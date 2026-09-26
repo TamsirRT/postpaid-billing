@@ -105,12 +105,12 @@ class PayRepoMixin:
     # ================================================================ settling
     SQL_RECORD_STRIPE = """
         select payment_id, created, applied_cents
-          from billing.record_stripe_payment(%(id)s::uuid, %(pi)s, %(method)s, %(amount)s::int)
+          from billing.record_stripe_payment(%(id)s::uuid, %(pi)s, %(method)s, %(amount)s::int, %(tax)s::int)
     """
 
-    def record_stripe_payment(self, intent_id, stripe_pi, method, amount_cents):
+    def record_stripe_payment(self, intent_id, stripe_pi, method, amount_cents, tax_cents=0):
         row = self.db.fetch_one(self.SQL_RECORD_STRIPE, {"id": intent_id, "pi": stripe_pi, "method": method,
-                                                         "amount": amount_cents})
+                                                         "amount": amount_cents, "tax": tax_cents})
         return {"payment_id": str(row["payment_id"]), "created": row["created"] in (True, "t", "true"),
                 "applied_cents": int(row["applied_cents"])}
 
@@ -191,7 +191,7 @@ class PayRepoMixin:
     # ================================================================ staff view
     SQL_ONLINE_PAYMENTS = """
         select i.id, i.student_id, s.first_name, s.last_name, g.name as guardian_name, i.amount_cents, i.lunches,
-               i.method, i.status, i.failure_reason, i.stripe_payment_intent, i.refunded_cents, i.disputed_at,
+               i.method, i.status, i.failure_reason, i.tax_cents, i.stripe_payment_intent, i.refunded_cents, i.disputed_at,
                i.needs_attention, i.created_at, i.updated_at,
                exists (select 1 from billing.payment_reversals r where r.payment_id = i.payment_id) as reversed
           from billing.payment_intents i

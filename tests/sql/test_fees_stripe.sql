@@ -72,6 +72,20 @@ select pg_temp.expect_eq((select status || ':' || (payment_id is not null) from 
                            where id = 'e4000000-0000-0000-0000-000000000001'), 'succeeded:true', 'intent marked succeeded');
 select pg_temp.expect_eq((select string_agg(lunches || '=' || amount_cents, ',' order by lunches) from b_opts),
                          '1=600', 'the Sep 9 lunch is paid; only the event-week lunch is left');
+
+-- Stripe Tax: the tax is kept beside the payment and never applied to lunches (migration 009)
+insert into billing.payment_intents (id, institution_id, student_id, amount_cents, processor_ref, lunches)
+values ('e4000000-0000-0000-0000-000000000002', '00000000-0000-0000-0000-00000000000a',
+        '00000000-0000-0000-0000-0000000000b1', 600, 'cs_test_2', 1);
+select pg_temp.expect_eq((select created from billing.record_stripe_payment('e4000000-0000-0000-0000-000000000002', 'pi_2', 'card', 600, 36)),
+                         true, 'payment with $0.36 tax recorded');
+select pg_temp.expect_eq((select amount_cents || '+' || tax_cents from billing.payments where processor_ref = 'pi_2'),
+                         '600+36', 'payment amount is the lunch amount; tax stored separately');
+select pg_temp.expect_eq((select coalesce(sum(a.amount_cents), 0) from billing.payment_allocations a
+                           join billing.payments p on p.id = a.payment_id where p.processor_ref = 'pi_2'),
+                         600::bigint, 'only the lunch amount is applied to lunches');
+select pg_temp.expect_eq((select tax_cents from billing.payment_intents where id = 'e4000000-0000-0000-0000-000000000002'),
+                         36, 'intent remembers the tax');
 select pg_temp.expect_error($q$ update billing.payment_intents set status = 'refunded' where processor_ref = 'cs_test_1' $q$,
                             '23514', 'intent statuses are limited');
 

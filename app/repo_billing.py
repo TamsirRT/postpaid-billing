@@ -530,7 +530,7 @@ class BillingRepoMixin:
         return self.db.fetch_all(self.SQL_STUDENT_LUNCHES, {"iid": institution_id, "sid": student_id})
 
     SQL_STUDENT_PAYMENTS = """
-        select p.id, p.amount_cents, p.method, p.received_at, p.note, s.email as recorded_by_email,
+        select p.id, p.amount_cents, p.tax_cents, p.method, p.received_at, p.note, s.email as recorded_by_email,
                (select r.reason from billing.payment_reversals r where r.payment_id = p.id) as reversed_reason
           from billing.payments p
           left join billing.staff_roles s on s.user_id = p.recorded_by

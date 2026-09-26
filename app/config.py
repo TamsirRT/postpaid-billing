@@ -32,6 +32,10 @@ def load_config(overrides=None):
         # Stripe (phase 3). Online payments are off until both are set.
         "STRIPE_SECRET_KEY": (os.environ.get("STRIPE_SECRET_KEY") or "").strip(),
         "STRIPE_WEBHOOK_SECRET": (os.environ.get("STRIPE_WEBHOOK_SECRET") or "").strip(),
+        # Stripe Tax: adds sales tax at checkout (online payments only). Turn on only after
+        # Stripe > Settings > Tax is set up with a registration, or checkout will fail.
+        "STRIPE_AUTOMATIC_TAX": (os.environ.get("STRIPE_AUTOMATIC_TAX") or "").strip().lower() in ("1", "true", "yes", "on"),
+        "STRIPE_TAX_CODE": (os.environ.get("STRIPE_TAX_CODE") or "").strip(),   # e.g. txcd_... ; blank = Stripe's default
         # Cookies
         "SESSION_COOKIE_HTTPONLY": True,
         "SESSION_COOKIE_SAMESITE": "Lax",
@@ -80,4 +84,9 @@ def check_stripe_config(cfg):
         raise ConfigError("STRIPE_SECRET_KEY should start with sk_test_ or sk_live_ (the secret key, not the publishable pk_ key)")
     if hook and not hook.startswith("whsec_"):
         raise ConfigError("STRIPE_WEBHOOK_SECRET should start with whsec_ (Stripe > Developers > Webhooks > signing secret)")
+    if cfg.get("STRIPE_AUTOMATIC_TAX") and not key:
+        raise ConfigError("STRIPE_AUTOMATIC_TAX needs STRIPE_SECRET_KEY and STRIPE_WEBHOOK_SECRET")
+    code = cfg.get("STRIPE_TAX_CODE") or ""
+    if code and not code.startswith("txcd_"):
+        raise ConfigError("STRIPE_TAX_CODE should look like txcd_12345678 (Stripe > Settings > Tax > product tax codes)")
     cfg["STRIPE_MODE"] = None if not key else ("live" if "_live_" in key else "test")

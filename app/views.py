@@ -853,6 +853,7 @@ def portal(token):
     resp = Response(render_template("portal.html", guardian=guardian, children=children, institution=inst,
                                     fine_print=FINE_PRINT, fee_print=FEE_PRINT if any_fee else None, notice=notice,
                                     token=token, can_pay=payments_enabled(current_app),
+                                    tax_at_checkout=current_app.config.get("STRIPE_AUTOMATIC_TAX"),
                                     support_email=current_app.config.get("SUPPORT_EMAIL")))
     return _portal_headers(resp)
 

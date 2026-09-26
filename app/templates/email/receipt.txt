@@ -1,6 +1,6 @@
 Hello{% if guardian.name %} {{ guardian.name }}{% endif %},
 
-We received {{ p.amount_cents|dollars }} ({{ p.method|method_label }}) on {{ p.received_at|when }} for {{ p.first_name }} {{ p.last_name }}'s lunches at {{ institution.name }}.
+We received {{ p.amount_cents|dollars }}{% if p.tax_cents|int > 0 %} plus {{ p.tax_cents|dollars }} sales tax ({{ (p.amount_cents|int + p.tax_cents|int)|dollars }} charged){% endif %} ({{ p.method|method_label }}) on {{ p.received_at|when }} for {{ p.first_name }} {{ p.last_name }}'s lunches at {{ institution.name }}.
 {% if covered %}
 It paid for:
 {% for c in covered %}  {{ c.service_date|when }}  {{ c.amount_cents|dollars }}

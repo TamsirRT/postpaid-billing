@@ -72,6 +72,12 @@ def start_checkout(app, repo, institution, guardian, student, lunches, portal_li
         "success_url": f"{portal_link}?paid={intent_id}",
         "cancel_url": f"{portal_link}?canceled=1",
     }
+    if app.config.get("STRIPE_AUTOMATIC_TAX"):
+        # tax is added on top of the lunch amount; Stripe works it out from the payer's address
+        params["automatic_tax"] = {"enabled": True}
+        params["line_items"][0]["price_data"]["tax_behavior"] = "exclusive"
+        if app.config.get("STRIPE_TAX_CODE"):
+            params["line_items"][0]["price_data"]["product_data"]["tax_code"] = app.config["STRIPE_TAX_CODE"]
     try:
         session = client.create_checkout_session(params, idempotency_key=f"checkout-{intent_id}")
     except StripeError as e:
@@ -134,7 +140,10 @@ def _checkout_event(app, repo, mailer, institution, etype, session):
         n = repo.set_intent_status(intent["id"], "processing", ["pending"], stripe_pi=pi, method="ach")
         return "processing" if n else "no change"
     method = _method_of(app, pi)
-    result = repo.record_stripe_payment(str(intent["id"]), pi, method, int(session.get("amount_total") or 0))
+    tax = int(((session.get("total_details") or {}).get("amount_tax")) or 0)
+    subtotal = session.get("amount_subtotal")
+    lunch_amount = int(subtotal) if subtotal is not None else int(session.get("amount_total") or 0) - tax
+    result = repo.record_stripe_payment(str(intent["id"]), pi, method, lunch_amount, tax)
     if result["created"]:
         from .notify import send_receipts
         try:

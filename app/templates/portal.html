@@ -46,7 +46,7 @@
           </fieldset>
           <button class="primary pay-button" type="submit" data-pay-button>Pay {{ full.amount_cents|dollars }}</button>
         </form>
-        <p class="muted small">You'll pay on Stripe's secure page by card or bank account. Your card and bank details never reach MealMode.</p>
+        <p class="muted small">{% if tax_at_checkout %}Sales tax, if it applies, is added on Stripe's page. {% endif %}You'll pay on Stripe's secure page by card or bank account. Your card and bank details never reach MealMode.</p>
         {% else %}
         <ul class="pay-list">
           {% for o in c.pay_options %}<li><span>{{ o.lunches }} lunch{{ '' if o.lunches|int == 1 else 'es' }} <span class="muted small">through {{ o.service_date|when }}</span></span><strong>{{ o.amount_cents|dollars }}</strong></li>{% endfor %}
@@ -85,7 +85,7 @@
       <h3>Payments</h3>
       {% if c.payments %}
       <ul class="plain">
-        {% for p in c.payments %}<li>{% if p.reversed in (True, 't') %}<s>{{ p.amount_cents|dollars }}</s> reversed{% else %}{{ p.amount_cents|dollars }}{% endif %} · {{ p.method|method_label }} · {{ p.received_at|when }}</li>{% endfor %}
+        {% for p in c.payments %}<li>{% if p.reversed in (True, 't') %}<s>{{ p.amount_cents|dollars }}</s> reversed{% else %}{{ p.amount_cents|dollars }}{% endif %}{% if p.tax_cents and p.tax_cents|int > 0 %} + {{ p.tax_cents|dollars }} tax{% endif %} · {{ p.method|method_label }} · {{ p.received_at|when }}</li>{% endfor %}
       </ul>
       {% else %}<p class="muted">No payments yet.</p>{% endif %}
     </section>

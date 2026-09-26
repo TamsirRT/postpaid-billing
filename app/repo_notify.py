@@ -116,7 +116,7 @@ class NotifyRepoMixin:
 
     # ================================================================ receipts
     SQL_PAYMENT_FOR_RECEIPT = """
-        select p.id, p.student_id, p.amount_cents, p.method, p.received_at,
+        select p.id, p.student_id, p.amount_cents, p.tax_cents, p.method, p.received_at,
                s.first_name, s.last_name,
                coalesce((select json_agg(json_build_object('service_date', cb.service_date, 'amount_cents', a.amount_cents)
                                         order by cb.service_date)
@@ -225,7 +225,7 @@ class NotifyRepoMixin:
         return self.db.fetch_all(self.SQL_PORTAL_LUNCHES, {"iid": institution_id, "sid": student_id})
 
     SQL_PORTAL_PAYMENTS = """
-        select p.amount_cents, p.method, p.received_at,
+        select p.amount_cents, p.tax_cents, p.method, p.received_at,
                exists (select 1 from billing.payment_reversals r where r.payment_id = p.id) as reversed
           from billing.payments p
          where p.institution_id = %(iid)s and p.student_id = %(sid)s

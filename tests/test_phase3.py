@@ -90,6 +90,15 @@ class StripeConfigTests(unittest.TestCase):
         with self.assertRaisesRegex(ConfigError, "whsec_"):
             self.load(STRIPE_SECRET_KEY="sk_test_abc", STRIPE_WEBHOOK_SECRET="abc")
 
+    def test_tax_settings(self):
+        cfg = self.load(STRIPE_SECRET_KEY="sk_test_a", STRIPE_WEBHOOK_SECRET=WHSEC, STRIPE_AUTOMATIC_TAX="true")
+        self.assertTrue(cfg["STRIPE_AUTOMATIC_TAX"])
+        self.assertFalse(self.load()["STRIPE_AUTOMATIC_TAX"])
+        with self.assertRaisesRegex(ConfigError, "STRIPE_AUTOMATIC_TAX needs"):
+            self.load(STRIPE_AUTOMATIC_TAX="true")
+        with self.assertRaisesRegex(ConfigError, "txcd_"):
+            self.load(STRIPE_SECRET_KEY="sk_test_a", STRIPE_WEBHOOK_SECRET=WHSEC, STRIPE_TAX_CODE="food")
+
     def test_mode_from_key(self):
         self.assertEqual(self.load(STRIPE_SECRET_KEY="sk_test_a", STRIPE_WEBHOOK_SECRET=WHSEC)["STRIPE_MODE"], "test")
         self.assertEqual(self.load(STRIPE_SECRET_KEY="rk_live_a", STRIPE_WEBHOOK_SECRET=WHSEC)["STRIPE_MODE"], "live")
@@ -375,6 +384,30 @@ class Phase3EndToEndTests(unittest.TestCase):
         self.assertEqual((rows["2026-09-01"]["price_cents"], rows["2026-09-01"]["fee_cents"]), ("825", "35"))  # paid, then disputed: locked
         ava = {r["service_date"]: r for r in self.repo.student_lunches(self.inst["id"], self.sid["ava"])}
         self.assertEqual(ava["2026-09-02"]["price_cents"], "840")
+
+    def test_g_stripe_tax_is_added_on_top_and_kept_apart(self):
+        self.app.config.update(STRIPE_AUTOMATIC_TAX=True, STRIPE_TAX_CODE="txcd_40060003")
+        try:
+            page = self.app.test_client().get(self.link(self.lopez)).get_data(as_text=True)
+            self.assertIn("Sales tax, if it applies, is added on Stripe", page)
+            self.assertEqual(self.pay(self.lopez, "ava", 1).status_code, 303)
+        finally:
+            self.app.config.update(STRIPE_AUTOMATIC_TAX=False, STRIPE_TAX_CODE="")
+        n = len(self.stripe.sessions)
+        p = self.stripe.sessions[n - 1]["params"]
+        self.assertEqual(p["automatic_tax"], {"enabled": True})
+        self.assertEqual(p["line_items"][0]["price_data"]["tax_behavior"], "exclusive")
+        self.assertEqual(p["line_items"][0]["price_data"]["product_data"]["tax_code"], "txcd_40060003")
+        before_balance, sent_before = self.balance("ava"), len(self.backend.sent)
+        event = self.session_event(n, pi="pi_tax_1", amount=875)
+        event.update(amount_subtotal=825, total_details={"amount_tax": 50})
+        self.assertEqual(self.webhook("checkout.session.completed", event).get_data(as_text=True), "recorded card")
+        row = self.db.fetch_one("select amount_cents, tax_cents from billing.payments where processor_ref = 'pi_tax_1'")
+        self.assertEqual((row["amount_cents"], row["tax_cents"]), ("825", "50"))
+        self.assertEqual(self.balance("ava"), before_balance - 825)          # tax never pays for lunches
+        self.assertIn("plus $0.50 sales tax ($8.75 charged)", self.backend.sent[sent_before]["text"])
+        self.assertIn("$8.25 + $0.50 tax", self.app.test_client().get(self.link(self.lopez)).get_data(as_text=True))
+        self.assertIn("+ $0.50 tax", self.client_as("viewer").get("/payments/online").get_data(as_text=True))
 
     def test_z_no_pin_and_no_parent_address_reached_providers(self):
         page = self.app.test_client().get(self.link(self.lopez)).get_data(as_text=True)
