@@ -149,29 +149,35 @@ class Repo(BillingRepoMixin, NotifyRepoMixin, PayRepoMixin):
                coalesce(b.balance_due_cents, 0)  as balance_due_cents,
                coalesce(b.unpaid_count, 0)       as unpaid_count,
                coalesce(cs.guardian_count, 0)    as guardian_count,
-               coalesce(cs.reachable_count, 0)   as reachable_count
+               coalesce(cs.reachable_count, 0)   as reachable_count,
+               (x.student_id is not null)        as email_excluded
           from public.students s
           left join billing.v_student_balances b
                  on b.student_id = s.id and b.institution_id = %(iid)s
           left join billing.v_student_contact_status cs
                  on cs.student_id = s.id and cs.institution_id = %(iid)s
+          left join billing.email_exclusions x
+                 on x.student_id = s.id and x.institution_id = %(iid)s
          where (%(pattern)s::text is null
                 or s.first_name ilike %(pattern)s
                 or s.last_name  ilike %(pattern)s
                 or (s.first_name || ' ' || s.last_name) ilike %(pattern)s)
            and (not %(missing_only)s
-                or (coalesce(b.balance_due_cents, 0) > 0 and coalesce(cs.reachable_count, 0) = 0))
+                or (coalesce(b.balance_due_cents, 0) > 0 and coalesce(cs.reachable_count, 0) = 0
+                    and x.student_id is null))
+           and (not %(excluded_only)s or x.student_id is not null)
          order by lower(s.last_name), lower(s.first_name)
          limit 1000
     """
 
-    def list_students(self, institution_id, query=None, missing_only=False):
+    def list_students(self, institution_id, query=None, missing_only=False, excluded_only=False):
         pattern = None
         if query:
             escaped = query.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
             pattern = f"%{escaped}%"
         return self.db.fetch_all(self.SQL_LIST_STUDENTS, {
             "iid": institution_id, "pattern": pattern, "missing_only": bool(missing_only),
+            "excluded_only": bool(excluded_only),
         })
 
     SQL_GET_STUDENT = """
@@ -181,15 +187,71 @@ class Repo(BillingRepoMixin, NotifyRepoMixin, PayRepoMixin):
                coalesce(b.open_cents, 0)        as open_cents,
                coalesce(b.credit_cents, 0)      as credit_cents,
                coalesce(b.unpaid_count, 0)      as unpaid_count,
-               b.oldest_unpaid_date
+               b.oldest_unpaid_date,
+               (x.student_id is not null) as email_excluded, x.reason as email_excluded_reason,
+               x.excluded_at as email_excluded_at, st.email as email_excluded_by
           from public.students s
           left join billing.v_student_balances b
                  on b.student_id = s.id and b.institution_id = %(iid)s
+          left join billing.email_exclusions x on x.student_id = s.id and x.institution_id = %(iid)s
+          left join billing.staff_roles st on st.user_id = x.excluded_by
          where s.id = %(sid)s
     """
 
     def get_student(self, institution_id, student_id):
         return self.db.fetch_one(self.SQL_GET_STUDENT, {"iid": institution_id, "sid": student_id})
+
+    # ------------------------------------------------------------- leave a child out of emails
+    SQL_EXCLUDE_CHILD = """
+        with ins as (
+            insert into billing.email_exclusions (institution_id, student_id, reason, excluded_by)
+            select %(iid)s, s.id, %(reason)s, %(actor)s from public.students s where s.id = %(sid)s
+            on conflict (institution_id, student_id)
+                do update set reason = excluded.reason, excluded_by = excluded.excluded_by, excluded_at = now()
+            returning student_id, reason
+        ),
+        audit as (
+            insert into billing.audit_log (institution_id, actor, actor_email, action, entity, entity_id, after)
+            select %(iid)s, %(actor)s, %(actor_email)s, 'exclude_child_from_emails', 'email_exclusions',
+                   ins.student_id::text, jsonb_build_object('reason', ins.reason)
+              from ins
+            returning id
+        )
+        select count(*) as n from ins
+    """
+
+    def exclude_child_from_emails(self, institution_id, student_id, reason, actor, actor_email):
+        return int(self.db.fetch_one(self.SQL_EXCLUDE_CHILD, {"iid": institution_id, "sid": student_id,
+                                                              "reason": reason, "actor": actor,
+                                                              "actor_email": actor_email})["n"])
+
+    SQL_INCLUDE_CHILD = """
+        with del as (
+            delete from billing.email_exclusions where institution_id = %(iid)s and student_id = %(sid)s
+            returning student_id, reason
+        ),
+        audit as (
+            insert into billing.audit_log (institution_id, actor, actor_email, action, entity, entity_id, before)
+            select %(iid)s, %(actor)s, %(actor_email)s, 'include_child_in_emails', 'email_exclusions',
+                   del.student_id::text, jsonb_build_object('reason', del.reason)
+              from del
+            returning id
+        )
+        select count(*) as n from del
+    """
+
+    def include_child_in_emails(self, institution_id, student_id, actor, actor_email):
+        return int(self.db.fetch_one(self.SQL_INCLUDE_CHILD, {"iid": institution_id, "sid": student_id,
+                                                              "actor": actor, "actor_email": actor_email})["n"])
+
+    SQL_EXCLUDED_OWING = """
+        select count(*) as n from billing.email_exclusions x
+          join billing.v_student_balances b on b.student_id = x.student_id and b.institution_id = x.institution_id
+         where x.institution_id = %(iid)s and b.balance_due_cents > 0
+    """
+
+    def excluded_children_owing(self, institution_id):
+        return int(self.db.fetch_one(self.SQL_EXCLUDED_OWING, {"iid": institution_id})["n"])
 
     # ------------------------------------------------------------ guardians
     SQL_STUDENT_GUARDIANS = """

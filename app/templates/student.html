@@ -4,6 +4,10 @@
 <p><a href="{{ url_for('main.students') }}">← Students</a></p>
 <h1>{{ s.first_name }} {{ s.last_name }}</h1>
 <p class="muted">Grade {{ s.grade_level or '—' }} · {{ s.home_room or 'No homeroom' }}</p>
+{% set excluded = s.email_excluded in (True, 't', 'true') %}
+{% if excluded %}
+<p class="flash flash-info"><strong>Left out of emails.</strong> No statements or receipts mention this child. Reason: {{ s.email_excluded_reason }}{% if s.email_excluded_by %} ({{ s.email_excluded_by }}, {{ s.email_excluded_at|when }}){% endif %}.</p>
+{% endif %}
 
 <div class="stats">
   <div class="stat"><span class="num">{{ s.balance_due_cents|dollars }}</span><span class="label">Balance due</span></div>
@@ -13,7 +17,7 @@
 
 <section class="card">
   <h2>Contacts</h2>
-  {% if not reachable and s.balance_due_cents|int > 0 %}
+  {% if not reachable and s.balance_due_cents|int > 0 and not excluded %}
   <p class="flash flash-error">This child owes money but no one can be emailed. They're skipped by statements and listed on <a href="{{ url_for('main.missing_contacts') }}">Missing contacts</a>.</p>
   {% endif %}
   {% if guardians %}
@@ -140,6 +144,26 @@
 </section>
 
 {% if role_at_least(g.staff.role, 'admin') %}
+{% if role_at_least(g.staff.role, 'admin') %}
+<section class="card">
+  <h2>Emails about this child</h2>
+  {% if excluded %}
+  <p>Statements and receipts leave this child out. Their lunches are still tracked, and their parents can still see them and pay on their page.</p>
+  <form method="post" action="{{ url_for('main.student_email_setting', student_id=s.id) }}">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+    <button class="secondary" type="submit" name="action" value="include">Include in emails again</button>
+  </form>
+  {% else %}
+  <p class="muted">Leave this child out of every statement and receipt, e.g. a staff child or a family the school pays for. Their lunches are still tracked. A parent's other children are unaffected.</p>
+  <form method="post" action="{{ url_for('main.student_email_setting', student_id=s.id) }}" class="grid-form">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+    <div><label for="ex-reason">Reason</label><input id="ex-reason" name="reason" type="text" required maxlength="300" placeholder="e.g. staff child"></div>
+    <div><button class="secondary" type="submit" name="action" value="exclude">Leave out of emails</button></div>
+  </form>
+  {% endif %}
+</section>
+{% endif %}
+
 <section class="card">
   <h2>Add a contact</h2>
   <p class="muted">If the email already belongs to a contact (a sibling's parent, say), they're linked instead of duplicated.</p>

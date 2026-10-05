@@ -30,6 +30,7 @@ migrations/008_fee_line_and_stripe.sql       processing fee on top of the meal p
 app/online.py, app/stripe_client.py          Stripe Checkout, webhook handling, signature checks
 migrations/009_stripe_tax.sql                sales tax collected by Stripe Tax, kept beside each payment
 migrations/010_refund_review.sql             refunded-order days are held for a staff decision instead of billed
+migrations/011_child_email_exclusions.sql    leave a child out of every statement and receipt
 app/payments.py                              the parent payment-amount rule, for phase 3 checkout
 app/importer.py, app/names.py                orders CSV parsing; name matching ported from v1.4
 app/classify.py                              the sorting run: match orders, sort check-ins, late orders, credit
@@ -229,6 +230,8 @@ Parent contacts live in `billing.guardians`, not in the check-in app's `students
 - **Contact page**: edit name, email, phone, and whether they get emails. Changes apply to every child they're linked to and are recorded in the audit log.
 - **Missing contacts**: every child who owes money but can't be emailed, with the reason (no contact, phone only, opted out). **Download list for the school** gives a CSV with name, grade, homeroom, balance, and the problem, ready to send so the school can supply contacts.
 - **Import contacts from school roster** copies valid emails and phones from `students.email` / `students.phone`. Placeholders such as `redacted`, blanks, and malformed values are skipped; siblings with the same email get one shared contact. Safe to run again.
+
+- **Leave a child out of emails** (admins, on the student page, with a reason): no statement or receipt mentions that child, even if their parent has other children who do get emails. Their lunches are still tracked, and their parents still see them on their page. For example, staff children or families the school pays for. Excluded children don't count as missing contacts. Students → "Only children left out of emails" lists them.
 
 Children without a usable email are simply **skipped** by statements. Nothing errors; they stay on the Missing contacts list until fixed. Statement sending reads only from `billing.v_statement_recipients`.
 

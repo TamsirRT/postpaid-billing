@@ -169,8 +169,9 @@ def students():
         return redirect(url_for("main.dashboard"))
     q = (request.args.get("q") or "").strip()
     missing_only = request.args.get("missing") == "1"
-    rows = _repo().list_students(inst["id"], q or None, missing_only)
-    return render_template("students.html", rows=rows, q=q, missing_only=missing_only)
+    excluded_only = request.args.get("excluded") == "1"
+    rows = _repo().list_students(inst["id"], q or None, missing_only, excluded_only)
+    return render_template("students.html", rows=rows, q=q, missing_only=missing_only, excluded_only=excluded_only)
 
 
 @bp.get("/students/<uuid:student_id>")
@@ -185,6 +186,27 @@ def student_detail(student_id):
     guardians = _repo().student_guardians(inst["id"], str(student_id))
     return render_template("student.html", s=student, guardians=guardians, reachable=_reachable(guardians),
                            form={}, errors=[], **_student_money(inst, str(student_id)))
+
+
+@bp.post("/students/<uuid:student_id>/emails")
+@require_role("admin")
+def student_email_setting(student_id):
+    inst = _inst_or_redirect()
+    if not inst:
+        return redirect(url_for("main.dashboard"))
+    back = url_for("main.student_detail", student_id=student_id)
+    if request.form.get("action") == "exclude":
+        reason = (request.form.get("reason") or "").strip()[:300]
+        if not reason:
+            flash("Give a reason, e.g. staff child or school pays.", "error")
+            return redirect(back)
+        n = _repo().exclude_child_from_emails(inst["id"], str(student_id), reason, g.staff["user_id"], g.staff["email"])
+        flash("This child is now left out of statements and receipts. Their lunches are still tracked." if n
+              else "Student not found.", "info" if n else "error")
+    elif request.form.get("action") == "include":
+        n = _repo().include_child_in_emails(inst["id"], str(student_id), g.staff["user_id"], g.staff["email"])
+        flash("This child is included in statements and receipts again." if n else "They weren't excluded.", "info")
+    return redirect(back)
 
 
 @bp.post("/students/<uuid:student_id>/guardians")
@@ -681,7 +703,7 @@ def statements():
     rows = _repo().statement_candidates(inst["id"], _mailer().mode, min_cents)
     missing = len(_repo().billed_without_contact(inst["id"]))
     return render_template("statements.html", rows=rows, min_dollars=request.args.get("min") or "",
-                           missing=missing)
+                           missing=missing, excluded=_repo().excluded_children_owing(inst["id"]))
 
 
 @bp.post("/statements/send")

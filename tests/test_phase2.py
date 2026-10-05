@@ -360,6 +360,47 @@ class Phase2EndToEndTests(unittest.TestCase):
         self.assertEqual(set(codes[:60]), {404})
         views._portal_hits.clear()
 
+    def test_e_a_child_can_be_left_out_of_emails(self):
+        admin = self.client_as("admin")
+        ben, eli = self.sid["ben"], self.sid["eli"]
+        viewer = self.client_as("viewer")
+        self.assertEqual(viewer.post(f"/students/{ben}/emails", data={
+            "csrf_token": self.token(viewer, "/statements"), "action": "exclude", "reason": "x"}).status_code, 403)
+        html = admin.post(f"/students/{ben}/emails", data={"csrf_token": self.token(admin, f"/students/{ben}"),
+                          "action": "exclude", "reason": ""}, follow_redirects=True).get_data(as_text=True)
+        self.assertIn("Give a reason", html)
+        html = admin.post(f"/students/{ben}/emails", data={"csrf_token": self.token(admin, f"/students/{ben}"),
+                          "action": "exclude", "reason": "staff child"}, follow_redirects=True).get_data(as_text=True)
+        self.assertIn("Left out of emails.", html)
+        self.assertIn("staff child", html)
+        # Maria's statement now covers Ava only
+        before = len(self.backend.sent)
+        admin.post(f"/guardians/{self.lopez}/statement", data={"csrf_token": self.token(admin, "/statements"),
+                                                               "override_recent": "on"})
+        msg = self.backend.sent[before]
+        self.assertIn("Lunch balance for Ava: $15.80", msg["subject"])
+        self.assertNotIn("Ben", msg["text"])
+        # a payment for Ben sends no receipt
+        before = len(self.backend.sent)
+        admin.post(f"/students/{ben}/payments", data={"csrf_token": self.token(admin, f"/students/{ben}"),
+                   "amount": "7.90", "method": "cash", "received_on": "2026-09-21", "note": ""})
+        self.assertEqual(len(self.backend.sent), before)
+        self.assertEqual(self.db.fetch_one("select count(*) as n from billing.payments where student_id = %(s)s",
+                                           {"s": ben})["n"], "1")              # still recorded and applied
+        # excluding a child with no contact takes them off Missing contacts
+        admin.post(f"/students/{eli}/emails", data={"csrf_token": self.token(admin, f"/students/{eli}"),
+                   "action": "exclude", "reason": "school pays"})
+        html = admin.get("/statements").get_data(as_text=True)
+        self.assertIn("1 child</a> owe money but have no parent who can be emailed", html)      # Dot only
+        self.assertIn("1 child who owe money is left out of emails on purpose", html)        # Eli (Ben paid up)
+        self.assertIn("Left out of emails", admin.get("/students?excluded=1").get_data(as_text=True))
+        # and back
+        html = admin.post(f"/students/{eli}/emails", data={"csrf_token": self.token(admin, f"/students/{eli}"),
+                          "action": "include"}, follow_redirects=True).get_data(as_text=True)
+        self.assertIn("included in statements and receipts again", html)
+        actions = {r["action"] for r in self.db.fetch_all("select distinct action from billing.audit_log")}
+        self.assertTrue({"exclude_child_from_emails", "include_child_in_emails"} <= actions)
+
     def test_z_no_parent_address_ever_reached_the_provider(self):
         self.assertTrue(self.backend.sent)
         self.assertEqual({m["to"] for m in self.backend.sent}, {TEST_INBOX})

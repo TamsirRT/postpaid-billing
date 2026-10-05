@@ -6,6 +6,7 @@
   <label for="q" class="sr-only">Search by name</label>
   <input id="q" name="q" type="search" placeholder="Search by name" value="{{ q }}">
   <label class="check"><input type="checkbox" name="missing" value="1" {% if missing_only %}checked{% endif %}> Only children who owe money with no email on file</label>
+  <label class="check"><input type="checkbox" name="excluded" value="1" {% if excluded_only %}checked{% endif %}> Only children left out of emails</label>
   <button class="primary small" type="submit">Filter</button>
 </form>
 <p class="muted">{{ rows|length }} student{{ '' if rows|length == 1 else 's' }}{% if rows|length >= 1000 %} (showing the first 1,000; narrow the search){% endif %}</p>
@@ -20,7 +21,8 @@
       <td>{{ r.home_room }}</td>
       <td class="amount">{{ r.balance_due_cents|dollars }}</td>
       <td>
-        {% if r.reachable_count|int > 0 %}Email on file
+        {% if r.email_excluded in (True, 't', 'true') %}<span class="tag">Left out of emails</span>
+        {% elif r.reachable_count|int > 0 %}Email on file
         {% elif r.guardian_count|int > 0 %}<span class="warn">No email</span>
         {% else %}<span class="{{ 'warn' if owes else 'muted' }}">None</span>{% endif %}
       </td>

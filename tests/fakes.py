@@ -96,7 +96,7 @@ class FakeRepo:
     def _count(self, sid):
         return sum(1 for (_, s) in self.links if s == sid)
 
-    def list_students(self, institution_id, query=None, missing_only=False):
+    def list_students(self, institution_id, query=None, missing_only=False, excluded_only=False):
         out = []
         for sid, st in self.students.items():
             name = f"{st['first_name']} {st['last_name']}".lower()

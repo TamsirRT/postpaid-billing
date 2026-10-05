@@ -2,7 +2,7 @@
 {% block title %}Statements{% endblock %}
 {% block content %}
 <h1>Statements</h1>
-<p>One email per parent, covering every child of theirs who owes money, with a link to their private page. {% if missing %}<a href="{{ url_for('main.missing_contacts') }}">{{ missing }} child{{ '' if missing == 1 else 'ren' }}</a> owe money but have no parent who can be emailed (no contact, no email, or emails turned off) and are skipped.{% endif %}</p>
+<p>One email per parent, covering every child of theirs who owes money, with a link to their private page. {% if missing %}<a href="{{ url_for('main.missing_contacts') }}">{{ missing }} child{{ '' if missing == 1 else 'ren' }}</a> owe money but have no parent who can be emailed (no contact, no email, or emails turned off) and are skipped.{% endif %}{% if excluded %} {{ excluded }} child{{ '' if excluded == 1 else 'ren' }} who owe money {{ 'is' if excluded == 1 else 'are' }} left out of emails on purpose (see <a href="{{ url_for('main.students', excluded=1) }}">Students</a>).{% endif %}</p>
 <form method="get" action="{{ url_for('main.statements') }}" class="filters">
   <label for="min">Only parents owing at least $</label>
   <input id="min" name="min" type="text" inputmode="decimal" value="{{ min_dollars }}" placeholder="0.01" class="note" style="min-width:90px;width:90px">

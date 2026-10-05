@@ -139,6 +139,8 @@ class NotifyRepoMixin:
           join billing.guardians g on g.id = gs.guardian_id
          where gs.institution_id = %(iid)s and gs.student_id = %(sid)s
            and g.email is not null and g.receives_notices
+           and not exists (select 1 from billing.email_exclusions x
+                            where x.institution_id = gs.institution_id and x.student_id = gs.student_id)
     """
 
     def reachable_guardians_of(self, institution_id, student_id):
