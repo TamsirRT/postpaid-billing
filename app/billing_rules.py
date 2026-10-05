@@ -16,7 +16,8 @@ def billing_start(slug):
     return BILLING_STARTS_ON.get(slug)
 
 
-def classify_check_in(check_in_date, getting_lunch, bill_separately, has_order, already_billed_that_day, start):
+def classify_check_in(check_in_date, getting_lunch, bill_separately, has_order, already_billed_that_day, start,
+                      has_refunded_order=False):
     """Decide how one check-in is billed.
 
     Returns (classification, note), or (None, reason) if it must not be
@@ -37,4 +38,7 @@ def classify_check_in(check_in_date, getting_lunch, bill_separately, has_order, 
         return "duplicate", "another check-in already counts for this child today"
     if has_order:
         return "pre_ordered", None
+    if has_refunded_order:
+        # Why it was refunded isn't in the export: staff decide in the review queue.
+        return "refund_hold", "Order for this day was refunded; waiting for review"
     return "post_paid", None

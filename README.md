@@ -29,6 +29,7 @@ app/notify.py, app/portal.py                 statements, receipts, parent portal
 migrations/008_fee_line_and_stripe.sql       processing fee on top of the meal price (locks with it); Stripe event log; record_stripe_payment()
 app/online.py, app/stripe_client.py          Stripe Checkout, webhook handling, signature checks
 migrations/009_stripe_tax.sql                sales tax collected by Stripe Tax, kept beside each payment
+migrations/010_refund_review.sql             refunded-order days are held for a staff decision instead of billed
 app/payments.py                              the parent payment-amount rule, for phase 3 checkout
 app/importer.py, app/names.py                orders CSV parsing; name matching ported from v1.4
 app/classify.py                              the sorting run: match orders, sort check-ins, late orders, credit
@@ -262,7 +263,9 @@ These were built in an environment that couldn't install packages, so be aware:
 - Has `email` and `phone` columns. In the test export every value is `redacted`, so a roster import there creates nothing and every billed child shows on Missing contacts. That's the intended behavior.
 - `pin` exists. Billing never selects it (a test fails the build if any query mentions it).
 
-**Check-ins** (13,803 rows). Rules live in `classify_check_in` in `app/billing_rules.py`, first match wins: before start date → not billed · `getting_lunch = false` → `no_lunch` · `bill_separately = true` → `excluded` · second check-in that day → `duplicate` · order that day → `pre_ordered` · otherwise → `post_paid`.
+**Check-ins** (13,803 rows). Rules live in `classify_check_in` in `app/billing_rules.py`, first match wins: before start date → not billed · `getting_lunch = false` → `no_lunch` · `bill_separately = true` → `excluded` · second check-in that day → `duplicate` · order that day → `pre_ordered` · order that day was refunded → `refund_hold` (not billed; staff choose **Bill it** or **Don't bill** in Review) · otherwise → `post_paid`.
+
+- **Refunded orders.** The export doesn't say why an order was refunded, so the app doesn't guess. Bill it if the family cancelled and the child ate anyway; don't bill if MealMode refunded for its own mistake. A later refund of an order moves that day to Review too, as long as nothing has been paid or waived on it. Days already decided stay decided.
 
 - `id` is a `uuid`, as assumed. `check_in_date` is a plain date and is used as the service date.
 - **`getting_lunch = false` on 174 check-ins**: checked in, no lunch. Classified `no_lunch`, never billed.

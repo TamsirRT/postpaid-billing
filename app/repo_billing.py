@@ -201,8 +201,18 @@ class BillingRepoMixin:
 
     SQL_POST_PAID_DAYS = """
         select student_id, service_date from billing.check_in_billing
-         where institution_id = %(iid)s and classification = 'post_paid'
+         where institution_id = %(iid)s and classification in ('post_paid', 'refund_hold')
            and service_date >= %(start)s and service_date < %(end)s
+    """
+
+    # Days whose only orders were refunded (no order still standing for that child and day).
+    SQL_REFUNDED_DAYS = """
+        select distinct o.student_id, o.service_date from billing.imported_orders o
+         where o.institution_id = %(iid)s and o.is_refunded and o.student_id is not null
+           and o.service_date >= %(start)s and o.service_date < %(end)s
+           and not exists (select 1 from billing.imported_orders k
+                            where k.institution_id = o.institution_id and k.student_id = o.student_id
+                              and k.service_date = o.service_date and not k.is_refunded)
     """
 
     SQL_ORDER_DAYS = """
@@ -215,7 +225,8 @@ class BillingRepoMixin:
         p = {"iid": institution_id, "start": start, "end": end}
         return (self.db.fetch_all(self.SQL_UNCLASSIFIED_CHECK_INS, p),
                 self.db.fetch_all(self.SQL_POST_PAID_DAYS, p),
-                self.db.fetch_all(self.SQL_ORDER_DAYS, p))
+                self.db.fetch_all(self.SQL_ORDER_DAYS, p),
+                self.db.fetch_all(self.SQL_REFUNDED_DAYS, p))
 
     SQL_INSERT_CLASSIFIED = """
         with ins as (
@@ -255,29 +266,43 @@ class BillingRepoMixin:
         return int(self.db.fetch_one(self.SQL_UNKNOWN_STUDENT_REVIEW, {
             "iid": institution_id, "run": run_id, "rows": json.dumps(rows)})["n"])
 
-    # Orders that arrive, or get refunded, after a day was classified.
+    # Orders that arrive, or get refunded, after a day was classified. A day whose
+    # order was refunded is held for review instead of billed (see migration 010);
+    # that includes post-paid days billed before this rule existed, if nothing is paid yet.
     SQL_RECONCILE_LATE_ORDERS = """
         with has_order as (
             select cb.check_in_id, cb.student_id, cb.service_date, cb.classification, cb.locked_at, cb.waived_at,
                    exists (select 1 from billing.imported_orders o
                             where o.institution_id = cb.institution_id and o.student_id = cb.student_id
-                              and o.service_date = cb.service_date and not o.is_refunded) as ordered
+                              and o.service_date = cb.service_date and not o.is_refunded) as ordered,
+                   exists (select 1 from billing.imported_orders o
+                            where o.institution_id = cb.institution_id and o.student_id = cb.student_id
+                              and o.service_date = cb.service_date and o.is_refunded) as refunded
               from billing.check_in_billing cb
              where cb.institution_id = %(iid)s and cb.service_date >= %(start)s
-               and cb.classification in ('post_paid', 'pre_ordered')
+               and cb.classification in ('post_paid', 'pre_ordered', 'refund_hold')
         ),
         to_pre as (
             update billing.check_in_billing cb
                set classification = 'pre_ordered', classification_note = 'Order found in a later import'
               from has_order h
-             where cb.check_in_id = h.check_in_id and h.classification = 'post_paid' and h.ordered
-               and h.locked_at is null and h.waived_at is null
+             where cb.check_in_id = h.check_in_id and h.ordered
+               and ((h.classification = 'post_paid' and h.locked_at is null and h.waived_at is null)
+                    or h.classification = 'refund_hold')
             returning cb.check_in_id
         ),
-        to_post as (
-            -- at most one per child per day, and only if that day has no billed lunch yet
+        closed as (
+            -- a held day that now has an order needs no decision
+            update billing.review_items r set status = 'dismissed', resolved_at = now()
+              from to_pre
+             where r.institution_id = %(iid)s and r.source = 'refund' and r.status = 'open'
+               and r.raw_reference = to_pre.check_in_id::text
+            returning r.id
+        ),
+        to_hold_from_pre as (
+            -- at most one per child per day, and only if that day has no billed or held lunch yet
             update billing.check_in_billing cb
-               set classification = 'post_paid', classification_note = 'Order was refunded in a later import'
+               set classification = 'refund_hold', classification_note = 'Order was refunded in a later import; waiting for review'
               from (select distinct on (student_id, service_date) check_in_id
                       from has_order
                      where classification = 'pre_ordered' and not ordered
@@ -285,7 +310,19 @@ class BillingRepoMixin:
              where cb.check_in_id = h.check_in_id
                and not exists (select 1 from billing.check_in_billing o
                                 where o.student_id = cb.student_id and o.service_date = cb.service_date
-                                  and o.classification = 'post_paid')
+                                  and o.classification in ('post_paid', 'refund_hold'))
+            returning cb.check_in_id
+        ),
+        to_hold_from_post as (
+            update billing.check_in_billing cb
+               set classification = 'refund_hold', classification_note = 'Order for this day was refunded; waiting for review'
+              from has_order h
+             where cb.check_in_id = h.check_in_id and h.classification = 'post_paid' and not h.ordered and h.refunded
+               and h.locked_at is null and h.waived_at is null
+               -- staff already chose to bill this day
+               and not exists (select 1 from billing.review_items r
+                                where r.institution_id = %(iid)s and r.source = 'refund' and r.status = 'resolved'
+                                  and r.raw_reference = h.check_in_id::text)
             returning cb.check_in_id
         ),
         flagged as (
@@ -298,9 +335,81 @@ class BillingRepoMixin:
             returning 1
         )
         select (select count(*) from to_pre)  as to_pre_ordered,
-               (select count(*) from to_post) as to_post_paid,
-               (select count(*) from flagged) as flagged
+               (select count(*) from to_hold_from_pre) + (select count(*) from to_hold_from_post) as to_refund_hold,
+               (select count(*) from flagged) as flagged,
+               (select count(*) from closed)  as refund_reviews_closed
     """
+
+    # One open review item per held check-in (deduplicated by the open-item index).
+    SQL_OPEN_REFUND_REVIEWS = """
+        with ins as (
+            insert into billing.review_items (institution_id, run_id, source, raw_reference, service_date, reason)
+            select cb.institution_id, %(run)s, 'refund', cb.check_in_id::text, cb.service_date,
+                   'The order for this day was refunded, but the child checked in for lunch'
+              from billing.check_in_billing cb
+             where cb.institution_id = %(iid)s and cb.classification = 'refund_hold'
+            on conflict do nothing
+            returning 1
+        )
+        select count(*) as n from ins
+    """
+
+    def open_refund_reviews(self, institution_id, run_id):
+        return int(self.db.fetch_one(self.SQL_OPEN_REFUND_REVIEWS, {"iid": institution_id, "run": run_id})["n"])
+
+    # Staff decide a held day: bill it, or don't.
+    SQL_RESOLVE_REFUND_ITEM = """
+        with item as (
+            select id, raw_reference::uuid as check_in_id from billing.review_items
+             where id = %(item)s and institution_id = %(iid)s and status = 'open' and source = 'refund'
+        ),
+        upd as (
+            update billing.check_in_billing cb
+               set classification = case
+                       when %(decision)s = 'bill' and exists (
+                            select 1 from billing.check_in_billing o
+                             where o.student_id = cb.student_id and o.service_date = cb.service_date
+                               and o.classification = 'post_paid' and o.check_in_id <> cb.check_in_id)
+                       then 'duplicate'
+                       when %(decision)s = 'bill' then 'post_paid'
+                       else 'refunded' end,
+                   classification_note = case when %(decision)s = 'bill'
+                       then 'Refunded order; staff chose to bill'
+                       else 'Refunded order; staff chose not to bill' end
+                       || coalesce(': ' || nullif(%(note)s::text, ''), '')
+              from item
+             where cb.check_in_id = item.check_in_id and cb.classification = 'refund_hold'
+            returning cb.check_in_id, cb.student_id, cb.classification
+        ),
+        res as (
+            update billing.review_items set status = 'resolved', resolved_student_id = (select student_id from upd),
+                   resolved_by = %(actor)s, resolved_at = now()
+             where id = (select id from item) and exists (select 1 from upd)
+            returning id
+        ),
+        audit as (
+            insert into billing.audit_log (institution_id, actor, actor_email, action, entity, entity_id, after)
+            select %(iid)s, %(actor)s, %(actor_email)s, 'resolve_refund_review', 'check_in_billing',
+                   upd.check_in_id::text,
+                   jsonb_build_object('decision', %(decision)s::text, 'classification', upd.classification,
+                                      'note', %(note)s::text)
+              from upd
+            returning id
+        )
+        select (select count(*) from res) as resolved, (select classification from upd) as classification,
+               (select student_id from upd) as student_id
+    """
+
+    def resolve_refund_item(self, institution_id, item_id, decision, note, actor, actor_email):
+        if decision not in ("bill", "no_bill"):
+            raise ValueError("decision must be bill or no_bill")
+        row = self.db.fetch_one(self.SQL_RESOLVE_REFUND_ITEM, {
+            "iid": institution_id, "item": item_id, "decision": decision, "note": note or "",
+            "actor": actor, "actor_email": actor_email})
+        if int(row["resolved"]) and row["classification"] == "post_paid":
+            # credit the child already has may pay this lunch straight away
+            self.db.fetch_one(self.SQL_APPLY_CREDIT, {"sid": str(row["student_id"])})
+        return {"resolved": int(row["resolved"]), "classification": row["classification"]}
 
     def reconcile_late_orders(self, institution_id, run_id, start):
         row = self.db.fetch_one(self.SQL_RECONCILE_LATE_ORDERS, {"iid": institution_id, "run": run_id, "start": start})
@@ -335,8 +444,17 @@ class BillingRepoMixin:
                  order by o.service_date desc limit 1) as sample_name,
                (select count(*) from billing.imported_orders o
                  where r.source = 'order' and o.institution_id = r.institution_id
-                   and o.ordering_user_id || '|' || o.name_key = r.raw_reference and not o.is_refunded) as order_count
+                   and o.ordering_user_id || '|' || o.name_key = r.raw_reference and not o.is_refunded) as order_count,
+               rs.student_id as refund_student_id, rs.first_name as refund_first_name, rs.last_name as refund_last_name,
+               (select string_agg(distinct o.product_name, ', ') from billing.imported_orders o
+                 where o.institution_id = r.institution_id and o.student_id = rs.student_id
+                   and o.service_date = r.service_date and o.is_refunded) as refund_products
           from billing.review_items r
+          left join lateral (
+                select s.id as student_id, s.first_name, s.last_name
+                  from billing.check_in_billing cb join public.students s on s.id = cb.student_id
+                 where r.source = 'refund' and cb.check_in_id::text = r.raw_reference
+          ) rs on true
          where r.institution_id = %(iid)s and r.status = 'open'
          order by r.source, r.service_date nulls last, r.created_at
     """

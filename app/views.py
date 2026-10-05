@@ -323,9 +323,13 @@ def _run_and_flash(inst):
              f"{cl.get('no_lunch', 0)} no lunch", f"{cl.get('excluded', 0)} excluded",
              f"{cl.get('duplicate', 0)} duplicate"]
     msg = "Classified new check-ins: " + ", ".join(parts) + "."
-    if late["to_pre_ordered"] or late["to_post_paid"]:
-        msg += f" Re-sorted {late['to_pre_ordered'] + late['to_post_paid']} earlier check-in(s) after order changes."
-    if c["match"]["review_items_opened"] or c["unknown_student_review_items"] or late["flagged"]:
+    if late["to_pre_ordered"] or late["to_refund_hold"]:
+        msg += f" Re-sorted {late['to_pre_ordered'] + late['to_refund_hold']} earlier check-in(s) after order changes."
+    if cl.get("refund_hold", 0) or late["to_refund_hold"]:
+        msg += (f" {cl.get('refund_hold', 0) + late['to_refund_hold']} check-in(s) on days with a refunded order are "
+                "held, not billed, until someone decides in the review queue.")
+    if (c["match"]["review_items_opened"] or c["unknown_student_review_items"] or late["flagged"]
+            or c.get("refund_review_items")):
         msg += " New items are waiting in the review queue."
     flash(msg, "info")
     return c
@@ -416,6 +420,29 @@ def review_match(item_id):
     flash(f"Matched. {res['orders_matched']} order line(s) now belong to that student; future orders under this "
           "name are matched automatically.", "info")
     _run_and_flash(inst)
+    return redirect(url_for("main.review"))
+
+
+@bp.post("/review/<uuid:item_id>/refund")
+@require_role("admin")
+def review_refund(item_id):
+    inst = _inst_or_redirect()
+    if not inst:
+        return redirect(url_for("main.dashboard"))
+    decision = request.form.get("decision")
+    if decision not in ("bill", "no_bill"):
+        flash("Choose whether to bill this lunch.", "error")
+        return redirect(url_for("main.review"))
+    note = (request.form.get("note") or "").strip()[:300]
+    r = _repo().resolve_refund_item(inst["id"], str(item_id), decision, note, g.staff["user_id"], g.staff["email"])
+    if not r["resolved"]:
+        flash("That item was already handled.", "info")
+    elif r["classification"] == "post_paid":
+        flash("Billed as a post-paid lunch.", "info")
+    elif r["classification"] == "duplicate":
+        flash("Not billed again: another lunch is already billed for that child that day.", "info")
+    else:
+        flash("Not billed. The day is recorded as a refunded order.", "info")
     return redirect(url_for("main.review"))
 
 

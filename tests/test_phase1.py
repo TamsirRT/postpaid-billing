@@ -98,6 +98,7 @@ class Phase1EndToEndTests(unittest.TestCase):
         ci("ava_sep4", "ava", "2026-09-04", bill_sep=True)      # bill separately -> excluded
         ci("ava_sep8", "ava", "2026-09-08")                     # order later refunded -> post_paid
         ci("ava_sep25", "ava", "2026-09-25")                    # after the export -> not yet
+        ci("ben_sep9", "ben", "2026-09-09")                     # billed, then an order + refund shows up -> held
         ci("ben_sep2", "ben", "2026-09-02")                     # sibling, same parent login, has order
         ci("cal_sep2", "cal", "2026-09-02")                     # post_paid; order arrives in a later import
         ci("dee1_sep2", "dee1", "2026-09-02")                   # ambiguous name on the order
@@ -220,7 +221,56 @@ class Phase1EndToEndTests(unittest.TestCase):
             ("o3", "2026-09-08", "refund", "Ava Lopez", "parent-lopez"),    # Ava's Sep 8 order refunded
         ], name="ALL ORDERS (2).csv")
         self.assertEqual(self.cls_of("cal_sep2"), "pre_ordered")
+        # a refunded order no longer bills the day automatically: it's held for a person to decide
+        self.assertEqual(self.cls_of("ava_sep8"), "refund_hold")
+
+    def test_7a_refunded_days_wait_for_a_decision(self):
+        self.assertEqual(self.cls_of("ben_sep9"), "post_paid")
+        cid = str(uuid.uuid4())                     # a new check-in on a day whose order is refunded in the same file
+        self.db.execute("insert into public.check_ins (id, student_id, check_in_date, getting_lunch, check_in_time, "
+                        "bill_separately) values (%(id)s, %(s)s, '2026-09-10', true, '2026-09-10 12:00-04', false)",
+                        {"id": cid, "s": self.sid["cal"]})
+        self.check_in["cal_sep10"] = cid
+        c = self.client_as("admin")
+        html = self.upload(c, [
+            ("o9", "2026-09-09", "order", "Ben Lopez", "parent-lopez"),
+            ("o9", "2026-09-09", "refund", "Ben Lopez", "parent-lopez"),
+            ("o10", "2026-09-10", "order", "Cal Ng", "parent-ng"),
+            ("o10", "2026-09-10", "refund", "Cal Ng", "parent-ng"),
+        ], name="ALL ORDERS (3).csv").get_data(as_text=True)
+        self.assertIn("held, not billed, until someone decides in the review queue", html)
+        self.assertEqual(self.cls_of("ben_sep9"), "refund_hold")      # billed earlier, nothing paid: now held
+        self.assertEqual(self.cls_of("cal_sep10"), "refund_hold")     # held from the start
+        page = c.get("/review").get_data(as_text=True)
+        for name in ("Ava Lopez", "Ben Lopez", "Cal Ng"):
+            self.assertIn(name, page)
+        self.assertIn("Bill it", page)
+        items = {i["refund_first_name"]: i for i in self.repo.open_review_items(self.inst["id"]) if i["source"] == "refund"}
+        self.assertEqual(set(items), {"Ava", "Ben", "Cal"})
+        # Ava's family cancelled but she ate: bill it. Ben's refund was our mistake: don't.
+        html = c.post(f"/review/{items['Ava']['id']}/refund", data={"csrf_token": self.token(c, "/review"),
+                      "decision": "bill", "note": "parent cancelled"}, follow_redirects=True).get_data(as_text=True)
+        self.assertIn("Billed as a post-paid lunch", html)
         self.assertEqual(self.cls_of("ava_sep8"), "post_paid")
+        html = c.post(f"/review/{items['Ben']['id']}/refund", data={"csrf_token": self.token(c, "/review"),
+                      "decision": "no_bill", "note": "wrong item delivered"}, follow_redirects=True).get_data(as_text=True)
+        self.assertIn("Not billed", html)
+        self.assertEqual(self.cls_of("ben_sep9"), "refunded")
+        note = self.db.fetch_one("select classification_note from billing.check_in_billing where check_in_id = %(c)s",
+                                 {"c": self.check_in["ben_sep9"]})["classification_note"]
+        self.assertEqual(note, "Refunded order; staff chose not to bill: wrong item delivered")
+        # handled items don't come back on the next run, and can't be decided twice
+        self.upload(c, [("o9", "2026-09-09", "refund", "Ben Lopez", "parent-lopez")], name="ALL ORDERS (4).csv")
+        self.assertEqual(self.cls_of("ben_sep9"), "refunded")
+        self.assertEqual({i["refund_first_name"] for i in self.repo.open_review_items(self.inst["id"])
+                          if i["source"] == "refund"}, {"Cal"})
+        html = c.post(f"/review/{items['Ben']['id']}/refund", data={"csrf_token": self.token(c, "/review"),
+                      "decision": "bill"}, follow_redirects=True).get_data(as_text=True)
+        self.assertIn("already handled", html)
+        viewer = self.client_as("viewer")
+        self.assertEqual(viewer.post(f"/review/{items['Cal']['id']}/refund",
+                                     data={"csrf_token": self.token(viewer, "/review"), "decision": "bill"}).status_code, 403)
+        self.assertIn("Refunded order: not billed", c.get(f"/students/{self.sid['ben']}").get_data(as_text=True))
 
     def test_8_rates_default_and_promo_period(self):
         admin = self.client_as("admin")
@@ -322,7 +372,7 @@ class Phase1EndToEndTests(unittest.TestCase):
         for path in ("/", "/orders", "/review", "/rates", "/students", f"/students/{self.sid['cal']}"):
             self.assertEqual(c.get(path).status_code, 200, path)
         actions = {r["action"] for r in self.db.fetch_all("select distinct action from billing.audit_log")}
-        for a in ("import_orders", "classification_run", "resolve_review_match", "set_default_price",
+        for a in ("import_orders", "classification_run", "resolve_review_match", "resolve_refund_review", "set_default_price",
                   "add_rate_period", "record_payment", "waive_lunch", "reverse_payment"):
             self.assertIn(a, actions)
         run = self.repo.last_run(self.inst["id"])

@@ -23,13 +23,29 @@
   {% elif it.source == 'check_in' %}
     <h2>Check-in for an unknown student</h2>
     <p>{{ it.reason }}: <code>{{ it.raw_reference }}</code>{% if it.service_date %} on {{ it.service_date|when }}{% endif %}. Fix it in the check-in app, then dismiss this.</p>
+  {% elif it.source == 'refund' %}
+    <h2>{% if it.refund_student_id %}<a href="{{ url_for('main.student_detail', student_id=it.refund_student_id) }}">{{ it.refund_first_name }} {{ it.refund_last_name }}</a>{% else %}Refunded order{% endif %}: {{ it.service_date|when }}</h2>
+    <p>The order for this day{% if it.refund_products %} ({{ it.refund_products }}){% endif %} was refunded, but the child checked in for lunch. It isn't billed until you decide.</p>
+    <ul class="small">
+      <li><strong>Bill it</strong> if the family cancelled and got their money back, but the child ate anyway.</li>
+      <li><strong>Don't bill</strong> if MealMode refunded for its own mistake and the family was already made whole.</li>
+    </ul>
+    {% if can_edit %}
+    <form method="post" action="{{ url_for('main.review_refund', item_id=it.id) }}" class="inline-block">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+      <label class="sr-only" for="rn-{{ loop.index }}">Note</label>
+      <input id="rn-{{ loop.index }}" name="note" type="text" placeholder="Why (optional), e.g. wrong item delivered" class="note">
+      <button class="primary" type="submit" name="decision" value="bill">Bill it</button>
+      <button class="secondary" type="submit" name="decision" value="no_bill">Don't bill</button>
+    </form>
+    {% endif %}
   {% elif it.source == 'late_order' %}
     <h2>Order arrived after payment</h2>
     <p>{{ it.reason }} ({{ it.service_date|when }}). Waive the lunch on the student's page if the order is genuine, then dismiss this.</p>
   {% else %}
     <h2>{{ it.source }}</h2><p>{{ it.reason }}</p>
   {% endif %}
-  {% if can_edit %}
+  {% if can_edit and it.source != 'refund' %}
   <form method="post" action="{{ url_for('main.review_dismiss', item_id=it.id) }}" class="inline-block">
     <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
     <label class="sr-only" for="n-{{ loop.index }}">Note</label>

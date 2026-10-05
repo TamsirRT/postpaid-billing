@@ -48,7 +48,7 @@
 
 <section class="card">
   <h2>Lunches</h2>
-  {% set labels = {'post_paid': 'Post-paid', 'pre_ordered': 'Pre-ordered', 'no_lunch': 'No lunch taken', 'excluded': 'Not included', 'duplicate': 'Duplicate check-in'} %}
+  {% set labels = {'post_paid': 'Post-paid', 'pre_ordered': 'Pre-ordered', 'no_lunch': 'No lunch taken', 'excluded': 'Not included', 'duplicate': 'Duplicate check-in', 'refund_hold': 'Refunded order: waiting for review', 'refunded': 'Refunded order: not billed'} %}
   {% set status_labels = {'open': 'Unpaid', 'partial': 'Part paid', 'paid': 'Paid', 'waived': 'Waived', 'needs_rate': 'No price'} %}
   {% if lunches %}
   <div class="table-wrap"><table>

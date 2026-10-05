@@ -59,3 +59,18 @@ class BillingRulesTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class RefundedOrderRuleTests(unittest.TestCase):
+    def test_refunded_order_day_is_held_not_billed(self):
+        from datetime import date as d
+        start = d(2026, 8, 31)
+        self.assertEqual(classify_check_in(d(2026, 9, 10), True, False, False, False, start, has_refunded_order=True)[0],
+                         "refund_hold")
+        # an order still standing that day wins; no lunch / excluded / duplicate still come first
+        self.assertEqual(classify_check_in(d(2026, 9, 10), True, False, True, False, start, has_refunded_order=True)[0],
+                         "pre_ordered")
+        self.assertEqual(classify_check_in(d(2026, 9, 10), False, False, False, False, start, has_refunded_order=True)[0],
+                         "no_lunch")
+        self.assertEqual(classify_check_in(d(2026, 9, 10), True, False, False, True, start, has_refunded_order=True)[0],
+                         "duplicate")

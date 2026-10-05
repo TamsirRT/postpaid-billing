@@ -55,9 +55,11 @@ def run_classification(repo, institution, actor=None, actor_email="system"):
     try:
         counts["match"] = repo.match_orders(institution["id"], roster_name_keys(repo), start)
 
-        check_ins, post_paid_days, order_days = repo.classification_inputs(institution["id"], start, known_through)
+        check_ins, post_paid_days, order_days, refunded_days = repo.classification_inputs(
+            institution["id"], start, known_through)
         billed = {(str(r["student_id"]), _as_date(r["service_date"])) for r in post_paid_days}
         ordered = {(str(r["student_id"]), _as_date(r["service_date"])) for r in order_days}
+        refunded = {(str(r["student_id"]), _as_date(r["service_date"])) for r in refunded_days}
 
         rows, unknown = [], []
         for c in check_ins:
@@ -66,10 +68,11 @@ def run_classification(repo, institution, actor=None, actor_email="system"):
                 unknown.append({"student_id": sid, "service_date": d.isoformat()})
                 continue
             cls, note = classify_check_in(d, _as_bool(c["getting_lunch"]), _as_bool(c["bill_separately"]),
-                                          (sid, d) in ordered, (sid, d) in billed, start)
+                                          (sid, d) in ordered, (sid, d) in billed, start,
+                                          has_refunded_order=(sid, d) in refunded)
             if cls is None:
                 continue
-            if cls == "post_paid":
+            if cls in ("post_paid", "refund_hold"):      # one lunch per child per day either way
                 billed.add((sid, d))
             rows.append({"check_in_id": str(c["id"]), "student_id": sid, "service_date": d.isoformat(),
                          "classification": cls, "note": note})
@@ -77,6 +80,7 @@ def run_classification(repo, institution, actor=None, actor_email="system"):
         counts["classified"] = repo.insert_classified(institution["id"], run_id, rows)
         counts["unknown_student_review_items"] = repo.review_unknown_students(institution["id"], run_id, unknown)
         counts["late_orders"] = repo.reconcile_late_orders(institution["id"], run_id, start)
+        counts["refund_review_items"] = repo.open_refund_reviews(institution["id"], run_id)
         counts["credit_applied_cents"] = repo.apply_all_credit(institution["id"])
         counts["window"] = {"from": start.isoformat(), "before": known_through.isoformat()}
     except Exception as e:
